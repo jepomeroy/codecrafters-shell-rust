@@ -1,23 +1,14 @@
 use anyhow::anyhow;
-use std::{collections::HashMap, process::exit};
-
-struct CommandData<'a> {
-    cmd: &'a str,
-    args: Option<&'a str>,
-    builtin: Vec<&'a str>,
-}
-
-impl<'a> CommandData<'a> {
-    fn new(cmd: &'a str, args: Option<&'a str>, builtin: Vec<&'a str>) -> Self {
-        Self { cmd, args, builtin }
-    }
-}
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
+use std::process::exit;
+use std::{env, fs};
 
 pub(crate) struct Builtin {}
 
 impl Builtin {
-    fn echo(cmd_data: CommandData) -> i32 {
-        match cmd_data.args {
+    fn echo(args: Option<&str>) -> i32 {
+        match args {
             Some(args) => println!("{}", args),
             _ => println!(),
         }
@@ -25,86 +16,105 @@ impl Builtin {
         0
     }
 
-    fn exit(_cmd_data: CommandData) -> i32 {
+    fn exit() -> i32 {
         exit(0);
     }
 
-    fn check_type(cmd_data: CommandData) -> i32 {
-        if let Some(type_arg) = cmd_data.args {
-            if cmd_data.builtin.contains(&type_arg) {
-                println!("{} is a shell builtin", type_arg);
-            } else {
-                println!("{}: not found", type_arg);
-            }
+    fn check_type(type_arg: &str, builtins: Vec<&str>, arg_path: Option<String>) -> i32 {
+        if builtins.contains(&type_arg) {
+            println!("{} is a shell builtin", type_arg);
+        } else if let Some(path) = arg_path {
+            println!("{} is {}", type_arg, path);
         } else {
-            println!("type requires one arg");
+            println!("{}: not found", type_arg);
         }
 
         0
     }
 
-    fn unknown(cmd_data: CommandData) -> i32 {
-        println!("{}: command not found", cmd_data.cmd);
+    fn unknown(cmd: &str) -> i32 {
+        println!("{}: command not found", cmd);
 
         0
     }
 }
 
 pub(crate) struct Commands<'a> {
-    commands: HashMap<&'a str, for<'b> fn(CommandData<'b>) -> i32>,
+    commands: Vec<&'a str>,
+    paths: Vec<String>,
 }
 
 impl<'a> Commands<'a> {
     pub(crate) fn new() -> Self {
-        let mut cmds = HashMap::<&str, for<'b> fn(CommandData<'b>) -> i32>::new();
+        let commands = vec!["echo", "exit", "type"];
 
-        // echo
-        cmds.insert("echo", Builtin::echo);
-        // exit
-        cmds.insert("exit", Builtin::exit);
-        // type
-        cmds.insert("type", Builtin::check_type);
+        let paths = match env::var("PATH") {
+            Ok(path_var) => env::split_paths(&path_var)
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect(),
+            Err(_) => vec![],
+        };
 
-        Self { commands: cmds }
+        Self { commands, paths }
     }
 
-    fn get_command(&self, name: &str) -> Option<&for<'b> fn(CommandData<'b>) -> i32> {
-        self.commands.get(name)
-    }
+    fn is_executalble_command(&self, cmd: &str) -> Option<String> {
+        for path in &self.paths {
+            let cmd_path = Path::new(path).join(cmd);
 
-    fn is_builtin(&self, cmd: &str) -> bool {
-        self.commands.contains_key(cmd)
+            if cmd_path.exists() {
+                match fs::metadata(&cmd_path) {
+                    Ok(metadata) => {
+                        if metadata.permissions().mode() & 0o111 != 0 {
+                            return Some(cmd_path.to_string_lossy().into_owned());
+                        }
+                    }
+                    Err(e) => eprintln!("{e}"),
+                }
+            }
+        }
+
+        None
     }
 
     fn list_builtin_commands(&self) -> Vec<&str> {
-        self.commands.keys().copied().collect()
+        self.commands.clone()
     }
-}
 
-pub(crate) fn process_command(input: &str) {
-    let cmds = Commands::new();
-    match parse_cmd(input) {
-        Ok((cmd, args)) => {
-            let cmd_data = CommandData::new(cmd, args, cmds.list_builtin_commands());
-            if let Some(func) = cmds.get_command(cmd) {
-                func(cmd_data);
-            } else {
-                Builtin::unknown(cmd_data);
-            }
+    fn parse_cmd(input: &str) -> Result<(&str, Option<&str>), anyhow::Error> {
+        if input.is_empty() {
+            return Err(anyhow!("command is empty"));
         }
-        Err(_) => println!(),
-    }
-}
 
-fn parse_cmd(input: &str) -> Result<(&str, Option<&str>), anyhow::Error> {
-    if input.is_empty() {
-        return Err(anyhow!("command is empty"));
+        if let Some((cmd, args)) = input.split_once(' ') {
+            Ok((cmd, Some(args)))
+        } else {
+            Ok((input, None))
+        }
     }
 
-    if let Some((cmd, args)) = input.split_once(' ') {
-        Ok((cmd, Some(args)))
-    } else {
-        Ok((input, None))
+    pub(crate) fn process_command(&self, input: &str) {
+        match Commands::parse_cmd(input) {
+            Ok((cmd, args)) => {
+                match cmd {
+                    "echo" => Builtin::echo(args),
+                    "exit" => Builtin::exit(),
+                    "type" => {
+                        let arg_cmd = args.unwrap_or("");
+                        Builtin::check_type(
+                            arg_cmd,
+                            self.list_builtin_commands(),
+                            self.is_executalble_command(arg_cmd),
+                        )
+                    }
+                    _ => match self.is_executalble_command(cmd) {
+                        Some(_path) => todo!(),
+                        None => Builtin::unknown(cmd),
+                    },
+                };
+            }
+            Err(_) => println!(),
+        }
     }
 }
 
@@ -115,14 +125,14 @@ mod tests {
     #[test]
     fn test_parse_empty() {
         let input = "";
-        let e = parse_cmd(input);
+        let e = Commands::parse_cmd(input);
         assert!(e.is_err());
     }
 
     #[test]
     fn test_cmd_only_parse() {
         let input = "foo";
-        if let Ok((cmd, args)) = parse_cmd(input) {
+        if let Ok((cmd, args)) = Commands::parse_cmd(input) {
             assert_eq!(cmd, "foo");
             assert!(args.is_none());
         }
@@ -131,7 +141,7 @@ mod tests {
     #[test]
     fn test_simple_parse() {
         let input = "foo bar";
-        if let Ok((cmd, args)) = parse_cmd(input) {
+        if let Ok((cmd, args)) = Commands::parse_cmd(input) {
             assert_eq!(cmd, "foo");
             assert!(args.is_some());
             assert_eq!(args, Some("bar"));
@@ -141,7 +151,7 @@ mod tests {
     #[test]
     fn test_long_parse() {
         let input = "foo bar baz bop";
-        if let Ok((cmd, args)) = parse_cmd(input) {
+        if let Ok((cmd, args)) = Commands::parse_cmd(input) {
             assert_eq!(cmd, "foo");
             assert!(args.is_some());
             assert_eq!(args, Some("bar baz bop"));
@@ -149,12 +159,10 @@ mod tests {
     }
 
     #[test]
-    fn test_is_builtin() {
+    fn test_list_commands() {
         let commands = Commands::new();
-        let builtin = commands.list_builtin_commands();
+        let builtins = commands.list_builtin_commands();
 
-        for b in builtin {
-            assert!(commands.is_builtin(b))
-        }
+        assert_eq!(builtins, vec!["echo", "exit", "type"])
     }
 }
