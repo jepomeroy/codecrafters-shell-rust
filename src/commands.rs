@@ -13,7 +13,7 @@ pub(crate) struct Commands<'a> {
 
 impl<'a> Commands<'a> {
     pub(crate) fn new() -> Self {
-        let commands = vec!["echo", "exit", "type"];
+        let commands = vec!["echo", "exit", "pwd", "type"];
 
         let paths = match env::var("PATH") {
             Ok(path_var) => env::split_paths(&path_var)
@@ -34,8 +34,6 @@ impl<'a> Commands<'a> {
 
         match results {
             Ok(output) => {
-                // println!("Status: {}", output.status);
-                // println!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
                 print!("{}", String::from_utf8_lossy(&output.stdout));
                 output.status.code().unwrap_or(0)
             }
@@ -88,6 +86,7 @@ impl<'a> Commands<'a> {
                 match cmd {
                     "echo" => Builtin::echo(args),
                     "exit" => Builtin::exit(),
+                    "pwd" => Builtin::pwd(),
                     "type" => {
                         let arg_cmd = args.unwrap_or("");
                         Builtin::check_type(

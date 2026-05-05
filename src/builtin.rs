@@ -1,3 +1,4 @@
+use std::env;
 use std::process::exit;
 
 pub(crate) struct Builtin {}
@@ -23,6 +24,15 @@ impl Builtin {
             println!("{} is {}", type_arg, path);
         } else {
             println!("{}: not found", type_arg);
+        }
+
+        0
+    }
+
+    pub(crate) fn pwd() -> i32 {
+        match env::current_dir() {
+            Ok(path) => println!("{}", path.display()),
+            Err(e) => eprintln!("Error getting current directory: {}", e),
         }
 
         0
