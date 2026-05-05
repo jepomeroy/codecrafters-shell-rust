@@ -36,7 +36,7 @@ impl<'a> Commands<'a> {
             Ok(output) => {
                 // println!("Status: {}", output.status);
                 // println!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
-                println!("{}", String::from_utf8_lossy(&output.stdout));
+                print!("{}", String::from_utf8_lossy(&output.stdout));
                 output.status.code().unwrap_or(0)
             }
             Err(e) => {
