@@ -6,15 +6,12 @@ use std::{env, fs};
 
 use crate::builtin::Builtin;
 
-pub(crate) struct Commands<'a> {
-    commands: Vec<&'a str>,
+pub(crate) struct Commands {
     paths: Vec<String>,
 }
 
-impl<'a> Commands<'a> {
+impl Commands {
     pub(crate) fn new() -> Self {
-        let commands = vec!["echo", "exit", "pwd", "type"];
-
         let paths = match env::var("PATH") {
             Ok(path_var) => env::split_paths(&path_var)
                 .map(|p| p.to_string_lossy().into_owned())
@@ -22,7 +19,7 @@ impl<'a> Commands<'a> {
             Err(_) => vec![],
         };
 
-        Self { commands, paths }
+        Self { paths }
     }
 
     fn execute_command(&self, cmd: &str, args: Option<&str>) -> i32 {
@@ -64,10 +61,6 @@ impl<'a> Commands<'a> {
         None
     }
 
-    fn list_builtin_commands(&self) -> Vec<&str> {
-        self.commands.clone()
-    }
-
     fn parse_cmd(input: &str) -> Result<(&str, Option<&str>), anyhow::Error> {
         if input.is_empty() {
             return Err(anyhow!("command is empty"));
@@ -84,16 +77,13 @@ impl<'a> Commands<'a> {
         match Commands::parse_cmd(input) {
             Ok((cmd, args)) => {
                 match cmd {
+                    "cd" => Builtin::cd(args.unwrap_or("")),
                     "echo" => Builtin::echo(args),
                     "exit" => Builtin::exit(),
                     "pwd" => Builtin::pwd(),
                     "type" => {
                         let arg_cmd = args.unwrap_or("");
-                        Builtin::check_type(
-                            arg_cmd,
-                            self.list_builtin_commands(),
-                            self.is_executalble_command(arg_cmd),
-                        )
+                        Builtin::check_type(arg_cmd, self.is_executalble_command(arg_cmd))
                     }
                     _ => match self.is_executalble_command(cmd) {
                         Some(_path) => self.execute_command(cmd, args),
@@ -144,13 +134,5 @@ mod tests {
             assert!(args.is_some());
             assert_eq!(args, Some("bar baz bop"));
         }
-    }
-
-    #[test]
-    fn test_list_commands() {
-        let commands = Commands::new();
-        let builtins = commands.list_builtin_commands();
-
-        assert_eq!(builtins, vec!["echo", "exit", "type"])
     }
 }
