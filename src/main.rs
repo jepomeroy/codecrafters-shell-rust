@@ -1,11 +1,12 @@
-#[allow(unused_imports)]
+use crate::commands::Commands;
 use std::io::{self, Write};
 
 mod builtin;
+mod commands;
 
 fn main() {
     let mut input = String::new();
-    let commands = builtin::Commands::new();
+    let commands = Commands::new();
     loop {
         print!("$ ");
         io::stdout().flush().unwrap();
