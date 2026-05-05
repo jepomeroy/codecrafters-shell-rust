@@ -26,7 +26,11 @@ impl<'a> Commands<'a> {
     }
 
     fn execute_command(&self, cmd: &str, args: Option<&str>) -> i32 {
-        let results = Command::new(cmd).args(args).output();
+        let args_iter: Vec<&str> = args
+            .map(|s| s.split_whitespace().collect())
+            .unwrap_or_default();
+
+        let results = Command::new(cmd).args(args_iter).output();
 
         match results {
             Ok(output) => {
