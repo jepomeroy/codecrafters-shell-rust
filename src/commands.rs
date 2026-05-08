@@ -10,6 +10,12 @@ pub(crate) struct Commands {
     paths: Vec<String>,
 }
 
+enum ParserState {
+    Normal,
+    SingleQuote,
+    DoubleQuote,
+}
+
 impl Commands {
     pub(crate) fn new() -> Self {
         let paths = match env::var("PATH") {
@@ -74,17 +80,29 @@ impl Commands {
     fn parse_args(args_str: &str) -> Vec<String> {
         let mut args = Vec::new();
         let mut current = String::new();
-        let mut in_single_quote = false;
+        let mut state = ParserState::Normal;
 
         for c in args_str.chars() {
-            match (c, in_single_quote) {
-                ('\'', _) => in_single_quote = !in_single_quote,
-                (' ', false) => {
-                    if !current.is_empty() {
-                        args.push(current.split_off(0));
+            match c {
+                '\'' => match state {
+                    ParserState::Normal => state = ParserState::SingleQuote,
+                    ParserState::SingleQuote => state = ParserState::Normal,
+                    ParserState::DoubleQuote => current.push('\''),
+                },
+                '\"' => match state {
+                    ParserState::Normal => state = ParserState::DoubleQuote,
+                    ParserState::SingleQuote => current.push('\"'),
+                    ParserState::DoubleQuote => state = ParserState::Normal,
+                },
+                ' ' => match state {
+                    ParserState::Normal => {
+                        if !current.is_empty() {
+                            args.push(current.split_off(0));
+                        }
                     }
-                }
-                (other, _) => current.push(other),
+                    _ => current.push(' '),
+                },
+                other => current.push(other),
             }
         }
 
@@ -197,6 +215,36 @@ mod tests {
     fn test_parse_args_with_empty_single_quotes() {
         let args = Commands::parse_args("arg1''arg2");
         assert_eq!(args, vec!["arg1arg2"]);
+    }
+
+    #[test]
+    fn test_parse_args_with_double_quotes() {
+        let args = Commands::parse_args("\"arg1   arg2\"");
+        assert_eq!(args, vec!["arg1   arg2"]);
+    }
+
+    #[test]
+    fn test_parse_args_with_multiple_double_quotes() {
+        let args = Commands::parse_args("\"arg1\"\"arg2\"");
+        assert_eq!(args, vec!["arg1arg2"]);
+    }
+
+    #[test]
+    fn test_parse_args_with_double_quote_and_unquoted() {
+        let args = Commands::parse_args("\"arg1\"arg2");
+        assert_eq!(args, vec!["arg1arg2"]);
+    }
+
+    #[test]
+    fn test_parse_args_with_separate_double_quotes() {
+        let args = Commands::parse_args("\"arg1\" \"arg2\"");
+        assert_eq!(args, vec!["arg1", "arg2"]);
+    }
+
+    #[test]
+    fn test_parse_args_with_double_quote_and_inner_single_quote() {
+        let args = Commands::parse_args("\"arg1's arg2\"");
+        assert_eq!(args, vec!["arg1's arg2"]);
     }
 
     // --- Commands::new ---
