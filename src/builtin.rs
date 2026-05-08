@@ -26,11 +26,10 @@ impl Builtin {
         }
     }
 
-    pub(crate) fn echo(args: Option<&str>) -> i32 {
-        match args {
-            Some(args) => println!("{}", args),
-            _ => println!(),
-        }
+    pub(crate) fn echo(args: Vec<&str>) -> i32 {
+        let args = args.join(" ");
+
+        println!("{}", args);
 
         0
     }
@@ -78,7 +77,67 @@ mod tests {
     #[test]
     fn test_list_commands() {
         let builtins = Builtin::builtin_cmds();
-
         assert_eq!(builtins, vec!["cd", "echo", "exit", "pwd", "type"])
+    }
+
+    #[test]
+    fn test_echo_no_args_returns_zero() {
+        assert_eq!(Builtin::echo(vec![]), 0);
+    }
+
+    #[test]
+    fn test_echo_with_args_returns_zero() {
+        assert_eq!(Builtin::echo(vec!["hello", "world"]), 0);
+    }
+
+    #[test]
+    fn test_pwd_returns_zero() {
+        assert_eq!(Builtin::pwd(), 0);
+    }
+
+    #[test]
+    fn test_unknown_returns_zero() {
+        assert_eq!(Builtin::unknown("nope"), 0);
+    }
+
+    #[test]
+    fn test_cd_invalid_path_returns_one() {
+        assert_eq!(Builtin::cd("/this/path/does/not/exist/xyz_shell_test"), 1);
+    }
+
+    #[test]
+    fn test_cd_valid_path_returns_zero() {
+        let orig = env::current_dir().unwrap();
+        let result = Builtin::cd("/tmp");
+        // Restore regardless of outcome so we don't pollute other tests.
+        let _ = env::set_current_dir(&orig);
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_check_type_builtin_returns_zero() {
+        assert_eq!(Builtin::check_type("echo", None), 0);
+    }
+
+    #[test]
+    fn test_check_type_with_path_returns_zero() {
+        assert_eq!(
+            Builtin::check_type("ls", Some("/usr/bin/ls".to_string())),
+            0
+        );
+    }
+
+    #[test]
+    fn test_check_type_unknown_returns_zero() {
+        assert_eq!(Builtin::check_type("notabuiltin_xyz", None), 0);
+    }
+
+    #[test]
+    fn test_check_type_builtin_not_classified_as_path() {
+        // A builtin should be reported as builtin even when a path is provided.
+        assert_eq!(
+            Builtin::check_type("pwd", Some("/usr/bin/pwd".to_string())),
+            0
+        );
     }
 }
