@@ -14,6 +14,7 @@ enum ParserState {
     Normal,
     SingleQuote,
     DoubleQuote,
+    Escaped,
 }
 
 impl Commands {
@@ -81,6 +82,7 @@ impl Commands {
         let mut args = Vec::new();
         let mut current = String::new();
         let mut state = ParserState::Normal;
+        let mut prev_state = ParserState::Normal;
 
         for c in args_str.chars() {
             match c {
@@ -88,11 +90,21 @@ impl Commands {
                     ParserState::Normal => state = ParserState::SingleQuote,
                     ParserState::SingleQuote => state = ParserState::Normal,
                     ParserState::DoubleQuote => current.push('\''),
+                    ParserState::Escaped => {
+                        state = ParserState::SingleQuote;
+                        prev_state = ParserState::Normal;
+                        current.push('\'');
+                    }
                 },
                 '\"' => match state {
                     ParserState::Normal => state = ParserState::DoubleQuote,
                     ParserState::SingleQuote => current.push('\"'),
                     ParserState::DoubleQuote => state = ParserState::Normal,
+                    ParserState::Escaped => {
+                        state = prev_state;
+                        prev_state = ParserState::Normal;
+                        current.push('\"');
+                    }
                 },
                 ' ' => match state {
                     ParserState::Normal => {
@@ -100,9 +112,33 @@ impl Commands {
                             args.push(current.split_off(0));
                         }
                     }
+                    ParserState::Escaped => {
+                        state = prev_state;
+                        prev_state = ParserState::Normal;
+                        current.push(' ');
+                    }
+
                     _ => current.push(' '),
                 },
-                other => current.push(other),
+                '\\' => match state {
+                    ParserState::Escaped => {
+                        state = prev_state;
+                        prev_state = ParserState::Normal;
+                        current.push('\\');
+                    }
+                    _ => {
+                        prev_state = state;
+                        state = ParserState::Escaped;
+                    }
+                },
+                other => match state {
+                    ParserState::Escaped => {
+                        state = prev_state;
+                        prev_state = ParserState::Normal;
+                        current.push(other);
+                    }
+                    _ => current.push(other),
+                },
             }
         }
 
@@ -192,7 +228,6 @@ mod tests {
     }
 
     // --- Parse args ---
-    // parse_args is just split_whitespace, so we can test that directly.
     #[test]
     fn test_parse_args() {
         let args = Commands::parse_args("  arg1   arg2  arg3  ");
@@ -245,6 +280,37 @@ mod tests {
     fn test_parse_args_with_double_quote_and_inner_single_quote() {
         let args = Commands::parse_args("\"arg1's arg2\"");
         assert_eq!(args, vec!["arg1's arg2"]);
+    }
+
+    // Literal chars in arg
+    #[test]
+    fn test_parse_args_backslash_spaces() {
+        let args = Commands::parse_args(r"arg1\ \ \ arg2");
+        assert_eq!(args, vec!["arg1   arg2"]);
+    }
+
+    #[test]
+    fn test_parse_args_backslash_space_collapse_others() {
+        let args = Commands::parse_args(r"arg1\     arg2");
+        assert_eq!(args, vec!["arg1 ", "arg2"]);
+    }
+
+    #[test]
+    fn test_parse_args_backslash_char() {
+        let args = Commands::parse_args(r"arg1\narg2");
+        assert_eq!(args, vec!["arg1narg2"]);
+    }
+
+    #[test]
+    fn test_parse_args_backslash_backslash() {
+        let args = Commands::parse_args(r"arg1\\arg2");
+        assert_eq!(args, vec![r"arg1\arg2"]);
+    }
+
+    #[test]
+    fn test_parse_args_backslash_single_quote() {
+        let args = Commands::parse_args(r"\'arg1 arg2\'");
+        assert_eq!(args, vec!["'arg1 arg2'"]);
     }
 
     // --- Commands::new ---
