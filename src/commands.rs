@@ -12,6 +12,7 @@ pub(crate) struct Commands {
 
 enum ParserState {
     Normal,
+    BSQOpen, // inside \'...\' — everything literal until closing \'
     SingleQuote,
     DoubleQuote,
     Escaped,
@@ -84,14 +85,17 @@ impl Commands {
         let mut state = ParserState::Normal;
         let mut prev_state = ParserState::Normal;
 
-        for c in args_str.chars() {
+        let mut iter = args_str.chars().peekable();
+
+        while let Some(c) = iter.next() {
             match c {
                 '\'' => match state {
                     ParserState::Normal => state = ParserState::SingleQuote,
                     ParserState::SingleQuote => state = ParserState::Normal,
                     ParserState::DoubleQuote => current.push('\''),
+                    ParserState::BSQOpen => current.push('\''),
                     ParserState::Escaped => {
-                        state = ParserState::SingleQuote;
+                        state = prev_state;
                         prev_state = ParserState::Normal;
                         current.push('\'');
                     }
@@ -100,6 +104,7 @@ impl Commands {
                     ParserState::Normal => state = ParserState::DoubleQuote,
                     ParserState::SingleQuote => current.push('\"'),
                     ParserState::DoubleQuote => state = ParserState::Normal,
+                    ParserState::BSQOpen => current.push('\"'),
                     ParserState::Escaped => {
                         state = prev_state;
                         prev_state = ParserState::Normal;
@@ -125,6 +130,21 @@ impl Commands {
                         state = prev_state;
                         prev_state = ParserState::Normal;
                         current.push('\\');
+                    }
+                    ParserState::SingleQuote => current.push('\\'),
+                    ParserState::BSQOpen => {
+                        if iter.peek() == Some(&'\'') {
+                            iter.next();
+                            current.push('\'');
+                            state = ParserState::Normal;
+                        } else {
+                            current.push('\\');
+                        }
+                    }
+                    ParserState::Normal if iter.peek() == Some(&'\'') => {
+                        iter.next();
+                        current.push('\'');
+                        state = ParserState::BSQOpen;
                     }
                     _ => {
                         prev_state = state;
@@ -221,7 +241,7 @@ mod tests {
         assert_eq!(args, Vec::<&str>::new());
     }
 
-    // A single space is not an empty string so parse_cmd succeeds.
+    // A single space is not an empty string so parse_cmd should error out.
     #[test]
     fn test_parse_single_space_not_error() {
         assert!(Commands::parse_cmd(" ").is_err());
@@ -313,6 +333,23 @@ mod tests {
         assert_eq!(args, vec!["'arg1 arg2'"]);
     }
 
+    // Support single quote sting literals
+    #[test]
+    fn test_parse_args_single_quote_with_multi_backslash() {
+        let args = Commands::parse_args(r"\'arg1\\\arg2\'");
+        assert_eq!(args, vec![r"'arg1\\\arg2'"]);
+    }
+
+    #[test]
+    fn test_parse_args_single_quote_with_backslash_double_quote() {
+        let args = Commands::parse_args("\'arg1\"arg2\'");
+        assert_eq!(args, vec!["arg1\"arg2"]);
+    }
+    #[test]
+    fn test_parse_args_backslash_single_quote_mixed() {
+        let args = Commands::parse_args("\'arg1\"arg2\"arg3\'");
+        assert_eq!(args, vec!["arg1\"arg2\"arg3"]);
+    }
     // --- Commands::new ---
 
     #[test]
