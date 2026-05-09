@@ -137,6 +137,9 @@ impl Commands {
                             iter.next();
                             current.push('\'');
                             state = ParserState::Normal;
+                        } else if iter.peek() == Some(&'"') {
+                            iter.next();
+                            current.push('"');
                         } else {
                             current.push('\\');
                         }
@@ -336,20 +339,34 @@ mod tests {
     // Support single quote sting literals
     #[test]
     fn test_parse_args_single_quote_with_multi_backslash() {
-        let args = Commands::parse_args(r"\'arg1\\\arg2\'");
-        assert_eq!(args, vec![r"'arg1\\\arg2'"]);
+        let args = Commands::parse_args(r"'arg1\\\arg2'");
+        assert_eq!(args, vec![r"arg1\\\arg2"]);
     }
 
     #[test]
     fn test_parse_args_single_quote_with_backslash_double_quote() {
-        let args = Commands::parse_args("\'arg1\"arg2\'");
-        assert_eq!(args, vec!["arg1\"arg2"]);
+        let args = Commands::parse_args("'arg1\"arg2'");
+        assert_eq!(args, vec![r#"arg1"arg2"#]);
     }
+
     #[test]
     fn test_parse_args_backslash_single_quote_mixed() {
-        let args = Commands::parse_args("\'arg1\"arg2\"arg3\'");
-        assert_eq!(args, vec!["arg1\"arg2\"arg3"]);
+        let args = Commands::parse_args("'arg1\"arg2\"arg3'");
+        assert_eq!(args, vec![r#"arg1"arg2"arg3"#]);
     }
+
+    #[test]
+    fn test_parse_args_escaped_single_and_double_quotes() {
+        let args = Commands::parse_args(r#"\'\"arg1 arg2\"\'"#);
+        assert_eq!(args, vec![r#"'"arg1 arg2"'"#]);
+    }
+
+    // [your-program] $ echo \'\"test world\"\'
+    // [your-program] '\"test world\"'
+    // [tester::#YT5] ^ Line does not match expected value.
+    // [tester::#YT5] Expected: "'"test world"'"
+    // [tester::#YT5] Received: "'\"test world\"'"
+
     // --- Commands::new ---
 
     #[test]
