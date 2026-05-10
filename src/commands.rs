@@ -19,6 +19,8 @@ enum RedirectType {
     None,
     /// Standard Output
     StdOut,
+    /// Standard Error
+    StdErr,
 }
 
 #[derive(Default)]
@@ -113,6 +115,33 @@ impl Commands {
                     }
                 }
             }
+            RedirectType::StdErr => {
+                let output_file = match File::create(&redirect.target) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        println!("Error: {}", e);
+                        return 1;
+                    }
+                };
+
+                match Command::new(cmd)
+                    .args(&args[0..redirect.position])
+                    .stderr(Stdio::from(output_file))
+                    .spawn()
+                {
+                    Ok(mut child) => match child.wait() {
+                        Ok(status) => status.code().unwrap_or(0),
+                        Err(e) => {
+                            println!("Error: {}", e);
+                            1
+                        }
+                    },
+                    Err(e) => {
+                        println!("Error: {}", e);
+                        1
+                    }
+                }
+            }
         }
     }
 
@@ -122,6 +151,13 @@ impl Commands {
                 ">" | "1>" => {
                     if let Some(target) = args.get(i + 1) {
                         return Ok(Redirect::new(RedirectType::StdOut, i, target.to_owned()));
+                    } else {
+                        return Err(anyhow!("Syntax Error: newline expected"));
+                    }
+                }
+                "2>" => {
+                    if let Some(target) = args.get(i + 1) {
+                        return Ok(Redirect::new(RedirectType::StdErr, i, target.to_owned()));
                     } else {
                         return Err(anyhow!("Syntax Error: newline expected"));
                     }
