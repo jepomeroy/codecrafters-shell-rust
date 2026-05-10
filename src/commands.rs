@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use std::fs::File;
+use std::fs::OpenOptions;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -28,14 +28,16 @@ struct Redirect {
     redirect_type: RedirectType,
     position: usize,
     target: String,
+    append: bool,
 }
 
 impl Redirect {
-    fn new(redirect_type: RedirectType, position: usize, target: String) -> Self {
+    fn new(redirect_type: RedirectType, position: usize, target: String, append: bool) -> Self {
         Self {
             redirect_type,
             position,
             target,
+            append,
         }
     }
 }
@@ -89,7 +91,13 @@ impl Commands {
                 }
             },
             RedirectType::StdOut => {
-                let output_file = match File::create(&redirect.target) {
+                let output_file = match OpenOptions::new()
+                    .append(redirect.append)
+                    .truncate(!redirect.append)
+                    .create(true)
+                    .write(true)
+                    .open(redirect.target)
+                {
                     Ok(f) => f,
                     Err(e) => {
                         println!("Error: {}", e);
@@ -116,7 +124,13 @@ impl Commands {
                 }
             }
             RedirectType::StdErr => {
-                let output_file = match File::create(&redirect.target) {
+                let output_file = match OpenOptions::new()
+                    .append(redirect.append)
+                    .truncate(!redirect.append)
+                    .create(true)
+                    .write(true)
+                    .open(redirect.target)
+                {
                     Ok(f) => f,
                     Err(e) => {
                         println!("Error: {}", e);
@@ -148,16 +162,54 @@ impl Commands {
     fn has_redirect(args: &Vec<String>) -> Result<Redirect, anyhow::Error> {
         for (i, arg) in args.iter().enumerate() {
             match arg.as_str() {
+                // overwrite stdout file
                 ">" | "1>" => {
                     if let Some(target) = args.get(i + 1) {
-                        return Ok(Redirect::new(RedirectType::StdOut, i, target.to_owned()));
+                        return Ok(Redirect::new(
+                            RedirectType::StdOut,
+                            i,
+                            target.to_owned(),
+                            false,
+                        ));
                     } else {
                         return Err(anyhow!("Syntax Error: newline expected"));
                     }
                 }
+                // append stdout file
+                ">>" | "1>>" => {
+                    if let Some(target) = args.get(i + 1) {
+                        return Ok(Redirect::new(
+                            RedirectType::StdOut,
+                            i,
+                            target.to_owned(),
+                            true,
+                        ));
+                    } else {
+                        return Err(anyhow!("Syntax Error: newline expected"));
+                    }
+                }
+                // overwrite stderr file
                 "2>" => {
                     if let Some(target) = args.get(i + 1) {
-                        return Ok(Redirect::new(RedirectType::StdErr, i, target.to_owned()));
+                        return Ok(Redirect::new(
+                            RedirectType::StdErr,
+                            i,
+                            target.to_owned(),
+                            false,
+                        ));
+                    } else {
+                        return Err(anyhow!("Syntax Error: newline expected"));
+                    }
+                }
+                // append stderr file
+                "2>>" => {
+                    if let Some(target) = args.get(i + 1) {
+                        return Ok(Redirect::new(
+                            RedirectType::StdErr,
+                            i,
+                            target.to_owned(),
+                            true,
+                        ));
                     } else {
                         return Err(anyhow!("Syntax Error: newline expected"));
                     }
