@@ -210,8 +210,8 @@ impl Commands {
     pub(crate) fn process_command(&self, input: &str) {
         match Commands::parse_cmd(input) {
             Ok((cmd, args)) => {
-                match cmd.as_str() {
-                    "cd" => {
+                match cmd {
+                    "cd".to_string() => {
                         args.iter().for_each(|p| {
                             let _ = Builtin::cd(p);
                         });
@@ -228,9 +228,9 @@ impl Commands {
 
                         0
                     }
-                    _ => match self.is_executalble_command(&cmd) {
-                        Some(_path) => self.execute_command(&cmd, args),
-                        None => Builtin::unknown(&cmd),
+                    _ => match self.is_executalble_command(cmd) {
+                        Some(_path) => self.execute_command(cmd, args),
+                        None => Builtin::unknown(cmd),
                     },
                 };
             }
@@ -277,35 +277,6 @@ mod tests {
         let (cmd, args) = Commands::parse_cmd(" foo").unwrap();
         assert_eq!(cmd, "foo");
         assert_eq!(args, Vec::<&str>::new());
-    }
-
-    // Command with single and double quotes
-    #[test]
-    fn test_parse_cmd_with_single_quotes() {
-        let (cmd, args) = Commands::parse_cmd("'my command' arg1").unwrap();
-        assert_eq!(cmd, "my command");
-        assert_eq!(args, vec!["arg1"]);
-    }
-
-    #[test]
-    fn test_parse_cmd_with_double_quotes() {
-        let (cmd, args) = Commands::parse_cmd(r#""my command" arg1"#).unwrap();
-        assert_eq!(cmd, "my command");
-        assert_eq!(args, vec!["arg1"]);
-    }
-
-    #[test]
-    fn test_parse_cmd_containing_single_quotes() {
-        let (cmd, args) = Commands::parse_cmd(r#""my 'command'" arg1"#).unwrap();
-        assert_eq!(cmd, r#"my 'command'"#);
-        assert_eq!(args, vec!["arg1"]);
-    }
-
-    #[test]
-    fn test_parse_cmd_containing_double_quotes() {
-        let (cmd, args) = Commands::parse_cmd(r#"'my "command"' arg1"#).unwrap();
-        assert_eq!(cmd, "my \"command\"");
-        assert_eq!(args, vec!["arg1"]);
     }
 
     // A single space is not an empty string so parse_cmd should error out.

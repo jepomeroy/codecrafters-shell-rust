@@ -5,6 +5,10 @@ use std::process::exit;
 pub(crate) struct Builtin {}
 
 impl Builtin {
+    /// Changes the current working directory.
+    ///
+    /// An empty string or `"~"` navigates to the user's home directory.
+    /// Returns `0` on success, `1` if the path does not exist or `HOME` is unset.
     pub(crate) fn cd(args: &str) -> i32 {
         let path = match args {
             "" | "~" => match env::home_dir() {
@@ -26,6 +30,7 @@ impl Builtin {
         }
     }
 
+    /// Prints `args` joined by a single space followed by a newline. Always returns `0`.
     pub(crate) fn echo(args: Vec<&str>) -> i32 {
         let args = args.join(" ");
 
@@ -34,10 +39,15 @@ impl Builtin {
         0
     }
 
+    /// Terminates the process with exit code `0`. Does not return.
     pub(crate) fn exit() -> i32 {
         exit(0);
     }
 
+    /// Reports whether `type_arg` is a shell builtin, an external command, or unknown.
+    ///
+    /// Pass the resolved executable path in `arg_path` when the command was found in `PATH`;
+    /// pass `None` if it was not found. Always returns `0`.
     pub(crate) fn check_type(type_arg: &str, arg_path: Option<String>) -> i32 {
         if Builtin::builtin_cmds().contains(&type_arg) {
             println!("{} is a shell builtin", type_arg);
@@ -50,6 +60,7 @@ impl Builtin {
         0
     }
 
+    /// Prints the current working directory to stdout. Always returns `0`.
     pub(crate) fn pwd() -> i32 {
         match env::current_dir() {
             Ok(path) => println!("{}", path.display()),
@@ -59,12 +70,14 @@ impl Builtin {
         0
     }
 
+    /// Prints a "command not found" message for `cmd`. Always returns `0`.
     pub(crate) fn unknown(cmd: &str) -> i32 {
         println!("{}: command not found", cmd);
 
         0
     }
 
+    /// Returns the list of names recognised as shell builtins.
     fn builtin_cmds() -> Vec<&'static str> {
         vec!["cd", "echo", "exit", "pwd", "type"]
     }
