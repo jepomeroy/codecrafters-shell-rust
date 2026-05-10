@@ -1,7 +1,8 @@
 use anyhow::anyhow;
+use std::fs::File;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::{env, fs};
 
 use crate::builtin::Builtin;
@@ -9,6 +10,32 @@ use crate::builtin::Builtin;
 /// Resolves and executes shell commands against the entries in `PATH`.
 pub(crate) struct Commands {
     paths: Vec<String>,
+}
+
+#[derive(Default)]
+enum RedirectType {
+    /// No redirect
+    #[default]
+    None,
+    /// Standard Output
+    StdOut,
+}
+
+#[derive(Default)]
+struct Redirect {
+    redirect_type: RedirectType,
+    position: usize,
+    target: String,
+}
+
+impl Redirect {
+    fn new(redirect_type: RedirectType, position: usize, target: String) -> Self {
+        Self {
+            redirect_type,
+            position,
+            target,
+        }
+    }
 }
 
 enum ParserState {
@@ -40,23 +67,74 @@ impl Commands {
 
     /// Runs `cmd` with `args` as a child process, prints its stdout, and returns its exit code.
     fn execute_command(&self, cmd: &str, args: Vec<String>) -> i32 {
-        let results = Command::new(cmd).args(args.iter()).output();
-
-        match results {
-            Ok(output) => {
-                print!("{}", String::from_utf8_lossy(&output.stdout));
-                output.status.code().unwrap_or(0)
-            }
+        let redirect = match Commands::has_redirect(&args) {
+            Ok(redirect) => redirect,
             Err(e) => {
-                println!("Error: {}", e);
+                println!("{e}");
+                return -1;
+            }
+        };
 
-                1
+        match redirect.redirect_type {
+            RedirectType::None => match Command::new(cmd).args(args.iter()).output() {
+                Ok(output) => {
+                    print!("{}", String::from_utf8_lossy(&output.stdout));
+                    output.status.code().unwrap_or(0)
+                }
+                Err(e) => {
+                    println!("Error: {}", e);
+                    1
+                }
+            },
+            RedirectType::StdOut => {
+                let output_file = match File::create(&redirect.target) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        println!("Error: {}", e);
+                        return 1;
+                    }
+                };
+
+                match Command::new(cmd)
+                    .args(&args[0..redirect.position])
+                    .stdout(Stdio::from(output_file))
+                    .spawn()
+                {
+                    Ok(mut child) => match child.wait() {
+                        Ok(status) => status.code().unwrap_or(0),
+                        Err(e) => {
+                            println!("Error: {}", e);
+                            1
+                        }
+                    },
+                    Err(e) => {
+                        println!("Error: {}", e);
+                        1
+                    }
+                }
             }
         }
     }
 
+    fn has_redirect(args: &Vec<String>) -> Result<Redirect, anyhow::Error> {
+        for (i, arg) in args.iter().enumerate() {
+            match arg.as_str() {
+                ">" | "1>" => {
+                    if let Some(target) = args.get(i + 1) {
+                        return Ok(Redirect::new(RedirectType::StdOut, i, target.to_owned()));
+                    } else {
+                        return Err(anyhow!("Syntax Error: newline expected"));
+                    }
+                }
+                _ => continue,
+            }
+        }
+
+        Ok(Redirect::default())
+    }
+
     /// Searches `PATH` for an executable named `cmd`. Returns its full path if found.
-    fn is_executalble_command(&self, cmd: &str) -> Option<String> {
+    fn is_executable_command(&self, cmd: &str) -> Option<String> {
         for path in &self.paths {
             let cmd_path = Path::new(path).join(cmd);
 
@@ -90,12 +168,6 @@ impl Commands {
         let cmd = input_list.remove(0);
 
         Ok((cmd, input_list))
-
-        // if let Some((cmd, args)) = input.split_once(' ') {
-        //     Ok((cmd, Commands::parse_input(args)))
-        // } else {
-        //     Ok((input, vec![]))
-        // }
     }
 
     /// Parses the argument portion of a command line into a vector of strings,
@@ -218,18 +290,26 @@ impl Commands {
 
                         0
                     }
-                    "echo" => Builtin::echo(args.iter().map(|s| s.as_str()).collect()),
-                    "exit" => Builtin::exit(),
-                    "pwd" => Builtin::pwd(),
-                    "type" => {
-                        for arg in args.iter() {
-                            Builtin::check_type(arg, self.is_executalble_command(arg));
+                    "echo" => {
+                        if let Some(cmd_path) = self.is_executable_command(&cmd) {
+                            self.execute_command(&cmd_path, args);
+                        } else {
+                            Builtin::echo(args.iter().map(|s| s.as_str()).collect());
                         }
 
                         0
                     }
-                    _ => match self.is_executalble_command(&cmd) {
-                        Some(_path) => self.execute_command(&cmd, args),
+                    "exit" => Builtin::exit(),
+                    "pwd" => Builtin::pwd(),
+                    "type" => {
+                        for arg in args.iter() {
+                            Builtin::check_type(arg, self.is_executable_command(arg));
+                        }
+
+                        0
+                    }
+                    _ => match self.is_executable_command(&cmd) {
+                        Some(_) => self.execute_command(&cmd, args),
                         None => Builtin::unknown(&cmd),
                     },
                 };
@@ -452,7 +532,7 @@ mod tests {
     #[test]
     fn test_is_executable_not_found_empty_paths() {
         let cmds = Commands { paths: vec![] };
-        assert!(cmds.is_executalble_command("ls").is_none());
+        assert!(cmds.is_executable_command("ls").is_none());
     }
 
     #[test]
@@ -460,7 +540,7 @@ mod tests {
         let cmds = Commands {
             paths: vec!["/nonexistent/path/xyz_shell_test".to_string()],
         };
-        assert!(cmds.is_executalble_command("ls").is_none());
+        assert!(cmds.is_executable_command("ls").is_none());
     }
 
     #[test]
@@ -476,7 +556,7 @@ mod tests {
         let cmds = Commands {
             paths: vec![tmpdir.to_string_lossy().into_owned()],
         };
-        let result = cmds.is_executalble_command("myfakeshellcmd");
+        let result = cmds.is_executable_command("myfakeshellcmd");
         let _ = fs::remove_dir_all(&tmpdir);
 
         assert!(result.is_some());
@@ -496,7 +576,7 @@ mod tests {
         let cmds = Commands {
             paths: vec![tmpdir.to_string_lossy().into_owned()],
         };
-        let result = cmds.is_executalble_command("noexecfile");
+        let result = cmds.is_executable_command("noexecfile");
         let _ = fs::remove_dir_all(&tmpdir);
 
         assert!(result.is_none());
