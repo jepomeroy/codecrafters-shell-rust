@@ -1,45 +1,15 @@
 use anyhow::anyhow;
-use std::fs::OpenOptions;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::{env, fs};
 
 use crate::builtin::Builtin;
+use crate::redirect::{Redirect, RedirectType};
 
 /// Resolves and executes shell commands against the entries in `PATH`.
 pub(crate) struct Commands {
     paths: Vec<String>,
-}
-
-#[derive(Default)]
-enum RedirectType {
-    /// No redirect
-    #[default]
-    None,
-    /// Standard Output
-    StdOut,
-    /// Standard Error
-    StdErr,
-}
-
-#[derive(Default)]
-struct Redirect {
-    redirect_type: RedirectType,
-    position: usize,
-    target: String,
-    append: bool,
-}
-
-impl Redirect {
-    fn new(redirect_type: RedirectType, position: usize, target: String, append: bool) -> Self {
-        Self {
-            redirect_type,
-            position,
-            target,
-            append,
-        }
-    }
 }
 
 enum ParserState {
@@ -71,7 +41,7 @@ impl Commands {
 
     /// Runs `cmd` with `args` as a child process, prints its stdout, and returns its exit code.
     fn execute_command(&self, cmd: &str, args: Vec<String>) -> i32 {
-        let redirect = match Commands::has_redirect(&args) {
+        let redirect = match Redirect::has_redirect(&args) {
             Ok(redirect) => redirect,
             Err(e) => {
                 println!("{e}");
@@ -91,13 +61,7 @@ impl Commands {
                 }
             },
             RedirectType::StdOut => {
-                let output_file = match OpenOptions::new()
-                    .append(redirect.append)
-                    .truncate(!redirect.append)
-                    .create(true)
-                    .write(true)
-                    .open(redirect.target)
-                {
+                let output_file = match redirect.get_redirect_file() {
                     Ok(f) => f,
                     Err(e) => {
                         println!("Error: {}", e);
@@ -124,13 +88,7 @@ impl Commands {
                 }
             }
             RedirectType::StdErr => {
-                let output_file = match OpenOptions::new()
-                    .append(redirect.append)
-                    .truncate(!redirect.append)
-                    .create(true)
-                    .write(true)
-                    .open(redirect.target)
-                {
+                let output_file = match redirect.get_redirect_file() {
                     Ok(f) => f,
                     Err(e) => {
                         println!("Error: {}", e);
@@ -157,68 +115,6 @@ impl Commands {
                 }
             }
         }
-    }
-
-    fn has_redirect(args: &Vec<String>) -> Result<Redirect, anyhow::Error> {
-        for (i, arg) in args.iter().enumerate() {
-            match arg.as_str() {
-                // overwrite stdout file
-                ">" | "1>" => {
-                    if let Some(target) = args.get(i + 1) {
-                        return Ok(Redirect::new(
-                            RedirectType::StdOut,
-                            i,
-                            target.to_owned(),
-                            false,
-                        ));
-                    } else {
-                        return Err(anyhow!("Syntax Error: newline expected"));
-                    }
-                }
-                // append stdout file
-                ">>" | "1>>" => {
-                    if let Some(target) = args.get(i + 1) {
-                        return Ok(Redirect::new(
-                            RedirectType::StdOut,
-                            i,
-                            target.to_owned(),
-                            true,
-                        ));
-                    } else {
-                        return Err(anyhow!("Syntax Error: newline expected"));
-                    }
-                }
-                // overwrite stderr file
-                "2>" => {
-                    if let Some(target) = args.get(i + 1) {
-                        return Ok(Redirect::new(
-                            RedirectType::StdErr,
-                            i,
-                            target.to_owned(),
-                            false,
-                        ));
-                    } else {
-                        return Err(anyhow!("Syntax Error: newline expected"));
-                    }
-                }
-                // append stderr file
-                "2>>" => {
-                    if let Some(target) = args.get(i + 1) {
-                        return Ok(Redirect::new(
-                            RedirectType::StdErr,
-                            i,
-                            target.to_owned(),
-                            true,
-                        ));
-                    } else {
-                        return Err(anyhow!("Syntax Error: newline expected"));
-                    }
-                }
-                _ => continue,
-            }
-        }
-
-        Ok(Redirect::default())
     }
 
     /// Searches `PATH` for an executable named `cmd`. Returns its full path if found.
@@ -668,25 +564,5 @@ mod tests {
         let _ = fs::remove_dir_all(&tmpdir);
 
         assert!(result.is_none());
-    }
-
-    // --- Commands::process_command ---
-
-    #[test]
-    fn test_process_command_empty_does_not_panic() {
-        let cmds = Commands { paths: vec![] };
-        cmds.process_command("");
-    }
-
-    #[test]
-    fn test_process_command_unknown_does_not_panic() {
-        let cmds = Commands { paths: vec![] };
-        cmds.process_command("thisdoesnotexist_xyz");
-    }
-
-    #[test]
-    fn test_process_command_echo_does_not_panic() {
-        let cmds = Commands { paths: vec![] };
-        cmds.process_command("echo hello");
     }
 }

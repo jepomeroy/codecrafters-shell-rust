@@ -1,21 +1,24 @@
-use crate::commands::Commands;
-use std::io::{self, Write};
+use std::error::Error;
 
+use rustyline::history::DefaultHistory;
+
+use crate::{autocomplete::AutoCompletion, commands::Commands};
+
+mod autocomplete;
 mod builtin;
 mod commands;
+mod redirect;
 
-fn main() {
-    let mut input = String::new();
+fn main() -> Result<(), Box<dyn Error>> {
+    let mut rl = rustyline::Editor::<AutoCompletion, DefaultHistory>::new()?;
+    rl.set_helper(Some(AutoCompletion::new()));
+
     let commands = Commands::new();
     loop {
-        print!("$ ");
-        io::stdout().flush().unwrap();
-
-        match io::stdin().read_line(&mut input) {
-            Ok(_) => commands.process_command(input.trim()),
+        let readline = rl.readline("$ ");
+        match readline {
+            Ok(line) => commands.process_command(line.trim()),
             Err(e) => println!("Error: {e}"),
         }
-
-        input.clear();
     }
 }

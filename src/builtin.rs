@@ -78,7 +78,7 @@ impl Builtin {
     }
 
     /// Returns the list of names recognised as shell builtins.
-    fn builtin_cmds() -> Vec<&'static str> {
+    pub(crate) fn builtin_cmds() -> Vec<&'static str> {
         vec!["cd", "echo", "exit", "pwd", "type"]
     }
 }
