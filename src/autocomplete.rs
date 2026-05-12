@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -14,12 +15,14 @@ use crate::{
     utils::{get_paths, is_executable},
 };
 
+/// Tab-completion helper for rustyline that suggests shell builtins and `PATH` executables.
 #[derive(Helper, Hinter, Highlighter, Validator)]
 pub(crate) struct AutoCompletion {
     paths: Vec<String>,
 }
 
 impl AutoCompletion {
+    /// Creates a new `AutoCompletion` by reading the `PATH` environment variable.
     pub(crate) fn new() -> Self {
         let paths = get_paths();
         Self { paths }
@@ -30,10 +33,12 @@ impl AutoCompletion {
         Self { paths }
     }
 
+    /// Returns all executable files inside `dir` whose name starts with `partial_name`.
     fn find_executables_by_partial_name(dir: &Path, partial_name: &str) -> Vec<PathBuf> {
         let Ok(entries) = fs::read_dir(dir) else {
             return vec![];
         };
+
         entries
             .flatten()
             .filter_map(|entry| {
@@ -51,6 +56,7 @@ impl AutoCompletion {
 impl Completer for AutoCompletion {
     type Candidate = Pair;
 
+    /// Returns completions for `line` by matching its prefix against builtins and `PATH` executables.
     fn complete(
         &self,
         line: &str,
@@ -59,6 +65,7 @@ impl Completer for AutoCompletion {
     ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
         let commands = Builtin::builtin_cmds();
         let mut candidates = Vec::new();
+        let mut commands_set = HashSet::new();
 
         // Check Builtins
         for cmd in commands {
@@ -76,23 +83,30 @@ impl Completer for AutoCompletion {
 
             let path_list = AutoCompletion::find_executables_by_partial_name(path, line);
 
-            path_list.iter().for_each(|f| {
-                let name = f
+            path_list.into_iter().for_each(|p| {
+                let name = p
                     .file_name()
                     .unwrap_or_default()
                     .to_string_lossy()
                     .into_owned();
 
-                candidates.push(Pair {
-                    display: format!("{} ", name),
-                    replacement: format!("{} ", name),
-                })
+                commands_set.insert(name);
             });
         }
+
+        commands_set.iter().for_each(|f| {
+            candidates.push(Pair {
+                display: format!("{} ", f),
+                replacement: format!("{} ", f),
+            })
+        });
+
+        candidates.sort_by(|a, b| a.display.cmp(&b.display));
 
         Ok((0, candidates))
     }
 
+    /// Replaces the text in `line` from `start` to the cursor with `elected`.
     fn update(&self, line: &mut LineBuffer, start: usize, elected: &str, cl: &mut Changeset) {
         let end = line.pos();
         line.replace(start..end, elected, cl);

@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use rustyline::history::DefaultHistory;
+use rustyline::{CompletionType, Config, config::BellStyle, history::DefaultHistory};
 
 use crate::{autocomplete::AutoCompletion, commands::Commands};
 
@@ -10,8 +10,15 @@ mod commands;
 mod redirect;
 mod utils;
 
+/// Starts the interactive shell REPL: reads a line, dispatches it, and loops forever.
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut rl = rustyline::Editor::<AutoCompletion, DefaultHistory>::new()?;
+    let config = Config::builder()
+        .bell_style(BellStyle::Audible)
+        .completion_type(CompletionType::List)
+        .build();
+
+    let mut rl = rustyline::Editor::<AutoCompletion, DefaultHistory>::with_config(config)?;
+
     rl.set_helper(Some(AutoCompletion::new()));
 
     let commands = Commands::new();

@@ -3,6 +3,8 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::{env, path::Path};
 
+/// Splits the `PATH` environment variable into individual directory strings.
+/// Returns an empty `Vec` when `PATH` is unset.
 pub(crate) fn get_paths() -> Vec<String> {
     match env::var("PATH") {
         Ok(path_var) => env::split_paths(&path_var)
@@ -12,6 +14,7 @@ pub(crate) fn get_paths() -> Vec<String> {
     }
 }
 
+/// Returns `true` if `path` has any execute bit set (Unix), `false` otherwise or on error.
 pub(crate) fn is_executable(path: &Path) -> bool {
     #[cfg(windows)]
     {
