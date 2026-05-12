@@ -8,6 +8,7 @@ mod autocomplete;
 mod builtin;
 mod commands;
 mod redirect;
+mod utils;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut rl = rustyline::Editor::<AutoCompletion, DefaultHistory>::new()?;

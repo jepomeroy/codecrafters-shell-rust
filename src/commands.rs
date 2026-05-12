@@ -1,11 +1,10 @@
 use anyhow::anyhow;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::{env, fs};
 
 use crate::builtin::Builtin;
 use crate::redirect::{Redirect, RedirectType};
+use crate::utils::{get_paths, is_executable};
 
 /// Resolves and executes shell commands against the entries in `PATH`.
 pub(crate) struct Commands {
@@ -29,13 +28,7 @@ enum ParserState {
 impl Commands {
     /// Creates a new `Commands` instance by reading the `PATH` environment variable.
     pub(crate) fn new() -> Self {
-        let paths = match env::var("PATH") {
-            Ok(path_var) => env::split_paths(&path_var)
-                .map(|p| p.to_string_lossy().into_owned())
-                .collect(),
-            Err(_) => vec![],
-        };
-
+        let paths = get_paths();
         Self { paths }
     }
 
@@ -122,15 +115,8 @@ impl Commands {
         for path in &self.paths {
             let cmd_path = Path::new(path).join(cmd);
 
-            if cmd_path.exists() {
-                match fs::metadata(&cmd_path) {
-                    Ok(metadata) => {
-                        if metadata.permissions().mode() & 0o111 != 0 {
-                            return Some(cmd_path.to_string_lossy().into_owned());
-                        }
-                    }
-                    Err(e) => eprintln!("{e}"),
-                }
+            if cmd_path.exists() && is_executable(&cmd_path) {
+                return Some(cmd_path.to_string_lossy().into_owned());
             }
         }
 
@@ -306,8 +292,8 @@ impl Commands {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use std::os::unix::fs::PermissionsExt;
+    use std::{env, fs};
 
     #[test]
     fn test_parse_empty() {
