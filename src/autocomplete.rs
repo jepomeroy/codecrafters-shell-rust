@@ -108,8 +108,6 @@ impl Completer for AutoCompletion {
             }
         }
 
-        // println!("COMPLETE: Line: {line}, Pos: {pos}");
-
         if let Ok((_, mut file_candidates)) = self.file_completer.complete(line, pos, ctx) {
             candidates.append(file_candidates.as_mut());
         }
@@ -121,18 +119,13 @@ impl Completer for AutoCompletion {
 
     /// Replaces the text in `line` from `start` to the cursor with `elected`.
     fn update(&self, line: &mut LineBuffer, start: usize, elected: &str, cl: &mut Changeset) {
-        // println!(
-        //     "UPDATE: Line: {:?}, Start: {start}, Elected: {elected}",
-        //     line
-        // );
-
         let start = match line.rfind(' ') {
-            Some(s) => s + 1, // Move one char past the space
+            Some(s) => s, // Move one char past the space
             None => start,
         };
 
         let end = line.pos();
-        line.replace(start..end, elected, cl);
+        line.replace(start..end, &format!(" {} ", elected), cl);
     }
 }
 
