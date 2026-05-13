@@ -6,7 +6,7 @@ use std::{
 
 use rustyline::{
     Changeset, Context, Helper, Highlighter, Hinter, Validator,
-    completion::{Completer, Pair},
+    completion::{Completer, FilenameCompleter, Pair},
     line_buffer::LineBuffer,
 };
 
@@ -19,18 +19,27 @@ use crate::{
 #[derive(Helper, Hinter, Highlighter, Validator)]
 pub(crate) struct AutoCompletion {
     paths: Vec<String>,
+    file_completer: FilenameCompleter,
 }
 
 impl AutoCompletion {
     /// Creates a new `AutoCompletion` by reading the `PATH` environment variable.
     pub(crate) fn new() -> Self {
+        let file_completer = FilenameCompleter::new();
         let paths = get_paths();
-        Self { paths }
+        Self {
+            paths,
+            file_completer,
+        }
     }
 
     #[cfg(test)]
     fn with_paths(paths: Vec<String>) -> Self {
-        Self { paths }
+        let file_completer = FilenameCompleter::new();
+        Self {
+            paths,
+            file_completer,
+        }
     }
 
     /// Returns all executable files inside `dir` whose name starts with `partial_name`.
@@ -60,12 +69,12 @@ impl Completer for AutoCompletion {
     fn complete(
         &self,
         line: &str,
-        _pos: usize,
-        _ctx: &Context<'_>,
+        pos: usize,
+        ctx: &Context<'_>,
     ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
         let commands = Builtin::builtin_cmds();
         let mut candidates = Vec::new();
-        let mut commands_set = HashSet::new();
+        let mut seen = HashSet::new();
 
         // Check Builtins
         for cmd in commands {
@@ -83,23 +92,27 @@ impl Completer for AutoCompletion {
 
             let path_list = AutoCompletion::find_executables_by_partial_name(path, line);
 
-            path_list.into_iter().for_each(|p| {
+            for p in path_list {
                 let name = p
                     .file_name()
                     .unwrap_or_default()
                     .to_string_lossy()
                     .into_owned();
 
-                commands_set.insert(name);
-            });
+                if seen.insert(name.clone()) {
+                    candidates.push(Pair {
+                        display: format!("{} ", name),
+                        replacement: format!("{} ", name),
+                    })
+                }
+            }
         }
 
-        commands_set.iter().for_each(|f| {
-            candidates.push(Pair {
-                display: format!("{} ", f),
-                replacement: format!("{} ", f),
-            })
-        });
+        // println!("COMPLETE: Line: {line}, Pos: {pos}");
+
+        if let Ok((_, mut file_candidates)) = self.file_completer.complete(line, pos, ctx) {
+            candidates.append(file_candidates.as_mut());
+        }
 
         candidates.sort_by(|a, b| a.display.cmp(&b.display));
 
@@ -108,6 +121,16 @@ impl Completer for AutoCompletion {
 
     /// Replaces the text in `line` from `start` to the cursor with `elected`.
     fn update(&self, line: &mut LineBuffer, start: usize, elected: &str, cl: &mut Changeset) {
+        // println!(
+        //     "UPDATE: Line: {:?}, Start: {start}, Elected: {elected}",
+        //     line
+        // );
+
+        let start = match line.rfind(' ') {
+            Some(s) => s + 1, // Move one char past the space
+            None => start,
+        };
+
         let end = line.pos();
         line.replace(start..end, elected, cl);
     }
