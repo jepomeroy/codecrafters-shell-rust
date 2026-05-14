@@ -119,13 +119,15 @@ impl Completer for AutoCompletion {
 
     /// Replaces the text in `line` from `start` to the cursor with `elected`.
     fn update(&self, line: &mut LineBuffer, start: usize, elected: &str, cl: &mut Changeset) {
-        let start = match line.rfind(' ') {
-            Some(s) => s, // Move one char past the space
-            None => start,
+        let new_elected = format!(" {} ", elected);
+
+        let (start, elected) = match line.rfind(' ') {
+            Some(s) => (s, new_elected.as_str()),
+            None => (start, elected),
         };
 
         let end = line.pos();
-        line.replace(start..end, &format!(" {} ", elected), cl);
+        line.replace(start..end, elected, cl);
     }
 }
 
