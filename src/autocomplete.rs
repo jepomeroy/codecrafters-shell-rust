@@ -6,7 +6,7 @@ use std::{
 
 use rustyline::{
     Changeset, Context, Helper, Highlighter, Hinter, Validator,
-    completion::{Completer, FilenameCompleter, Pair},
+    completion::{Completer, FilenameCompleter, Pair, longest_common_prefix},
     line_buffer::LineBuffer,
 };
 
@@ -117,12 +117,23 @@ impl Completer for AutoCompletion {
                 })
                 .collect::<Vec<_>>();
 
+            // longest common prefix
+            if let Some(lcp) = longest_common_prefix(&file_candidates) {
+                return Ok((
+                    1,
+                    vec![Pair {
+                        display: String::from(lcp),
+                        replacement: String::from(lcp),
+                    }],
+                ));
+            }
+
             candidates.append(file_candidates.as_mut());
         }
 
         candidates.sort_by(|a, b| a.display.cmp(&b.display));
 
-        Ok((0, candidates))
+        Ok((candidates.len(), candidates))
     }
 
     /// Replaces the text in `line` from `start` to the cursor with `elected`.
@@ -213,7 +224,7 @@ mod tests {
         let ac = AutoCompletion::with_paths(vec![]);
         let h = DefaultHistory::new();
         let (start, candidates) = ac.complete("ec", 2, &ctx(&h)).unwrap();
-        assert_eq!(start, 0);
+        assert_eq!(start, 1);
         let replacements: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
         assert!(replacements.contains(&"echo "));
     }
