@@ -128,7 +128,11 @@ impl Completer for AutoCompletion {
             }
         }
 
-        if let Ok((_, file_candidates)) = self.file_completer.complete(line, pos, ctx) {
+        let mut start = 0;
+        if let Ok((file_start, file_candidates)) = self.file_completer.complete(line, pos, ctx) {
+            if !file_candidates.is_empty() {
+                start = file_start;
+            }
             let mut file_candidates = file_candidates
                 .iter()
                 .map(|c| Pair {
@@ -142,7 +146,7 @@ impl Completer for AutoCompletion {
 
         candidates.sort_by(|a, b| a.display.cmp(&b.display));
 
-        Ok((candidates.len(), candidates))
+        Ok((start, candidates))
     }
 
     /// Replaces the text in `line` from `start` to the cursor with `elected`.
@@ -229,7 +233,7 @@ mod tests {
         let ac = AutoCompletion::with_paths(vec![]);
         let h = DefaultHistory::new();
         let (start, candidates) = ac.complete("ec", 2, &ctx(&h)).unwrap();
-        assert_eq!(start, 1);
+        assert_eq!(start, 0);
         let replacements: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
         assert!(replacements.contains(&"echo "));
     }
@@ -344,7 +348,11 @@ mod tests {
         let prefix = format!("{}/foo", dir.path().display());
         let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
 
-        assert_eq!(candidates.len(), 2, "both matching files should be returned");
+        assert_eq!(
+            candidates.len(),
+            2,
+            "both matching files should be returned"
+        );
         let reps: Vec<&str> = candidates.iter().map(|c| c.replacement.as_str()).collect();
         assert!(reps.iter().any(|r| r.contains("foo_alpha")));
         assert!(reps.iter().any(|r| r.contains("foo_beta")));
@@ -399,7 +407,11 @@ mod tests {
         let prefix = format!("{}/foo", dir.path().display());
         let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
 
-        assert_eq!(candidates.len(), 2, "file and directory should both be returned");
+        assert_eq!(
+            candidates.len(),
+            2,
+            "file and directory should both be returned"
+        );
         let reps: Vec<&str> = candidates.iter().map(|c| c.replacement.as_str()).collect();
         assert!(reps.iter().any(|r| r.contains("foo_file")));
         assert!(reps.iter().any(|r| r.contains("foo_dir/")));
@@ -460,7 +472,11 @@ mod tests {
         let prefix = format!("{}/bar", dir.path().display());
         let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
 
-        assert_eq!(candidates.len(), 3, "all three matching files should be returned");
+        assert_eq!(
+            candidates.len(),
+            3,
+            "all three matching files should be returned"
+        );
         let reps: Vec<&str> = candidates.iter().map(|c| c.replacement.as_str()).collect();
         assert!(reps.iter().any(|r| r.contains("bar_one")));
         assert!(reps.iter().any(|r| r.contains("bar_two")));
@@ -491,11 +507,21 @@ mod tests {
 
         // rustyline computes the LCP of all candidates and passes it to update().
         // Verify format_completion produces the right string for that LCP.
-        let lcp = longest_common_prefix(&candidates).expect("candidates should have a common prefix");
-        assert!(lcp.ends_with("xyz_foo"), "LCP should extend to 'xyz_foo', got '{lcp}'");
-        assert!(!lcp.ends_with('/'), "LCP of multiple dirs should not have trailing slash");
+        let lcp =
+            longest_common_prefix(&candidates).expect("candidates should have a common prefix");
+        assert!(
+            lcp.ends_with("xyz_foo"),
+            "LCP should extend to 'xyz_foo', got '{lcp}'"
+        );
+        assert!(
+            !lcp.ends_with('/'),
+            "LCP of multiple dirs should not have trailing slash"
+        );
         let formatted = ac.format_completion(lcp);
-        assert!(formatted.contains("xyz_foo"), "formatted LCP should contain 'xyz_foo', got '{formatted}'");
+        assert!(
+            formatted.contains("xyz_foo"),
+            "formatted LCP should contain 'xyz_foo', got '{formatted}'"
+        );
     }
 
     #[test]
@@ -510,13 +536,27 @@ mod tests {
         let prefix = format!("{}/xyz_foo_", dir.path().display());
         let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
 
-        assert_eq!(candidates.len(), 2, "two dirs starting with 'xyz_foo_' should be returned");
+        assert_eq!(
+            candidates.len(),
+            2,
+            "two dirs starting with 'xyz_foo_' should be returned"
+        );
 
-        let lcp = longest_common_prefix(&candidates).expect("candidates should have a common prefix");
-        assert!(lcp.ends_with("xyz_foo_bar"), "LCP should extend to 'xyz_foo_bar', got '{lcp}'");
-        assert!(!lcp.ends_with('/'), "LCP of multiple dirs should not have trailing slash");
+        let lcp =
+            longest_common_prefix(&candidates).expect("candidates should have a common prefix");
+        assert!(
+            lcp.ends_with("xyz_foo_bar"),
+            "LCP should extend to 'xyz_foo_bar', got '{lcp}'"
+        );
+        assert!(
+            !lcp.ends_with('/'),
+            "LCP of multiple dirs should not have trailing slash"
+        );
         let formatted = ac.format_completion(lcp);
-        assert!(formatted.contains("xyz_foo_bar"), "formatted LCP should contain 'xyz_foo_bar', got '{formatted}'");
+        assert!(
+            formatted.contains("xyz_foo_bar"),
+            "formatted LCP should contain 'xyz_foo_bar', got '{formatted}'"
+        );
     }
 
     #[test]
@@ -599,12 +639,21 @@ mod tests {
         for c in &candidates {
             let rep = &c.replacement;
             if rep.contains("foo") {
-                assert!(rep.ends_with('/'), "directory 'foo' should end with '/', got '{rep}'");
+                assert!(
+                    rep.ends_with('/'),
+                    "directory 'foo' should end with '/', got '{rep}'"
+                );
                 assert!(!rep.ends_with("//"), "no double slash, got '{rep}'");
             }
             if rep.contains("bar.txt") {
-                assert!(!rep.ends_with('/'), "file 'bar.txt' should not end with '/', got '{rep}'");
-                assert!(!rep.ends_with(' '), "file 'bar.txt' should not end with space, got '{rep}'");
+                assert!(
+                    !rep.ends_with('/'),
+                    "file 'bar.txt' should not end with '/', got '{rep}'"
+                );
+                assert!(
+                    !rep.ends_with(' '),
+                    "file 'bar.txt' should not end with space, got '{rep}'"
+                );
             }
         }
     }
@@ -618,16 +667,28 @@ mod tests {
     fn format_completion_file_no_trailing_slash() {
         let ac = AutoCompletion::with_paths(vec![]);
         let result = ac.format_completion("myfile.txt");
-        assert!(result.contains("myfile.txt"), "should contain filename, got '{result}'");
-        assert!(!result.ends_with('/'), "file should not end with '/', got '{result}'");
+        assert!(
+            result.contains("myfile.txt"),
+            "should contain filename, got '{result}'"
+        );
+        assert!(
+            !result.ends_with('/'),
+            "file should not end with '/', got '{result}'"
+        );
     }
 
     #[test]
     fn format_completion_directory_ends_with_slash_not_space() {
         let ac = AutoCompletion::with_paths(vec![]);
         let result = ac.format_completion("project/");
-        assert!(result.ends_with('/'), "directory should end with '/', got '{result}'");
-        assert!(!result.ends_with(' '), "directory should not end with space, got '{result}'");
+        assert!(
+            result.ends_with('/'),
+            "directory should end with '/', got '{result}'"
+        );
+        assert!(
+            !result.ends_with(' '),
+            "directory should not end with space, got '{result}'"
+        );
         assert!(!result.ends_with("//"), "no double slash, got '{result}'");
     }
 
@@ -636,8 +697,14 @@ mod tests {
         // Command candidates already carry a trailing space from complete().
         let ac = AutoCompletion::with_paths(vec![]);
         let result = ac.format_completion("echo ");
-        assert!(result.contains("echo"), "should contain command name, got '{result}'");
-        assert!(!result.ends_with('/'), "command should not end with '/', got '{result}'");
+        assert!(
+            result.contains("echo"),
+            "should contain command name, got '{result}'"
+        );
+        assert!(
+            !result.ends_with('/'),
+            "command should not end with '/', got '{result}'"
+        );
     }
 
     #[test]
@@ -645,7 +712,10 @@ mod tests {
         // Completing into a nested dir: /tmp/abc/sub/ — the trailing slash must be preserved.
         let ac = AutoCompletion::with_paths(vec![]);
         let result = ac.format_completion("/tmp/abc/sub/");
-        assert!(result.ends_with('/'), "deep dir path should end with '/', got '{result}'");
+        assert!(
+            result.ends_with('/'),
+            "deep dir path should end with '/', got '{result}'"
+        );
         assert!(!result.ends_with("//"), "no double slash, got '{result}'");
     }
 }
