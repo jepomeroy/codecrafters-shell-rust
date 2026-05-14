@@ -120,10 +120,6 @@ impl Completer for AutoCompletion {
             candidates.append(file_candidates.as_mut());
         }
 
-        if let Ok((_, mut file_candidates)) = self.file_completer.complete(line, pos, ctx) {
-            candidates.append(file_candidates.as_mut());
-        }
-
         candidates.sort_by(|a, b| a.display.cmp(&b.display));
 
         Ok((0, candidates))
