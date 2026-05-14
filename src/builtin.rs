@@ -1,4 +1,5 @@
 use std::env;
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::exit;
 
@@ -30,11 +31,22 @@ impl Builtin {
         }
     }
 
-    /// Prints `args` joined by a single space followed by a newline. Always returns `0`.
-    pub(crate) fn echo(args: Vec<&str>) -> i32 {
-        let args = args.join(" ");
+    /// Prints a completion error message for `args[1]` if `args` has the correct format; otherwise,
+    /// prints a blank line. Always returns `0`.
+    pub(crate) fn complete<W: Write>(args: &[String], out: &mut W) -> i32 {
+        if args.len() != 2 || args[0] != "-p" {
+            writeln!(out).ok();
+            return 0;
+        }
 
-        println!("{}", args);
+        writeln!(out, "complete: {}: no completion specification", args[1]).ok();
+
+        0
+    }
+
+    /// Prints `args` joined by a single space followed by a newline. Always returns `0`.
+    pub(crate) fn echo<W: Write>(args: Vec<&str>, out: &mut W) -> i32 {
+        writeln!(out, "{}", args.join(" ")).ok();
 
         0
     }
@@ -98,12 +110,16 @@ mod tests {
 
     #[test]
     fn test_echo_no_args_returns_zero() {
-        assert_eq!(Builtin::echo(vec![]), 0);
+        let mut out = vec![];
+        assert_eq!(Builtin::echo(vec![], &mut out), 0);
+        assert_eq!(String::from_utf8(out).unwrap(), "\n");
     }
 
     #[test]
     fn test_echo_with_args_returns_zero() {
-        assert_eq!(Builtin::echo(vec!["hello", "world"]), 0);
+        let mut out = vec![];
+        assert_eq!(Builtin::echo(vec!["hello", "world"], &mut out), 0);
+        assert_eq!(String::from_utf8(out).unwrap(), "hello world\n");
     }
 
     #[test]
@@ -154,6 +170,44 @@ mod tests {
         assert_eq!(
             Builtin::check_type("pwd", Some("/usr/bin/pwd".to_string())),
             0
+        );
+    }
+
+    #[test]
+    fn test_completion_returns_bad_arg_count() {
+        let mut out = vec![];
+        assert_eq!(Builtin::complete(&[], &mut out), 0);
+        assert_eq!(String::from_utf8(out).unwrap(), "\n");
+
+        let mut out = vec![];
+        assert_eq!(Builtin::complete(&["one_arg".to_string()], &mut out), 0);
+        assert_eq!(String::from_utf8(out).unwrap(), "\n");
+    }
+    #[test]
+    fn test_completion_returns_correct_args() {
+        let mut out = vec![];
+        assert_eq!(
+            Builtin::complete(&["-p".to_string(), "git".to_string()], &mut out),
+            0
+        );
+
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "complete: git: no completion specification\n"
+        );
+    }
+
+    #[test]
+    fn test_completion_returns_correct_arg_count_bad_completion() {
+        let mut out = vec![];
+        assert_eq!(
+            Builtin::complete(&["-p".to_string(), "not_a_command".to_string()], &mut out),
+            0
+        );
+
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "complete: not_a_command: no completion specification\n"
         );
     }
 }

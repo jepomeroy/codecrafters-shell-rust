@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use std::io::stdout;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -260,11 +261,12 @@ impl Commands {
 
                         0
                     }
+                    "complete" => Builtin::complete(&args, &mut stdout()),
                     "echo" => {
                         if let Some(cmd_path) = self.is_executable_command(&cmd) {
                             self.execute_command(&cmd_path, args);
                         } else {
-                            Builtin::echo(args.iter().map(|s| s.as_str()).collect());
+                            Builtin::echo(args.iter().map(|s| s.as_str()).collect(), &mut stdout());
                         }
 
                         0
