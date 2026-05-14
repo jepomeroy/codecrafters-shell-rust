@@ -108,6 +108,18 @@ impl Completer for AutoCompletion {
             }
         }
 
+        if let Ok((_, file_candidates)) = self.file_completer.complete(line, pos, ctx) {
+            let mut file_candidates = file_candidates
+                .iter()
+                .map(|c| Pair {
+                    display: c.replacement.clone(),
+                    replacement: c.replacement.clone(),
+                })
+                .collect::<Vec<_>>();
+
+            candidates.append(file_candidates.as_mut());
+        }
+
         if let Ok((_, mut file_candidates)) = self.file_completer.complete(line, pos, ctx) {
             candidates.append(file_candidates.as_mut());
         }
