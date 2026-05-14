@@ -43,16 +43,7 @@ impl AutoCompletion {
     }
 
     fn format_completion(&self, elected: &str) -> String {
-        match longest_common_prefix(&[self.make_pair(elected)]) {
-            Some(lsp) => format!(" {}", lsp),
-            None => {
-                if elected.ends_with('/') {
-                    format!(" {}", elected)
-                } else {
-                    format!(" {} ", elected)
-                }
-            }
-        }
+        format!(" {}", elected)
     }
 
     /// Returns all executable files inside `dir` whose name starts with `partial_name`.
@@ -72,13 +63,6 @@ impl AutoCompletion {
                 (matches && path.is_file() && is_executable(&path)).then_some(path)
             })
             .collect()
-    }
-
-    fn make_pair(&self, name: &str) -> Pair {
-        Pair {
-            display: name.to_owned(),
-            replacement: name.to_owned(),
-        }
     }
 }
 
@@ -135,9 +119,16 @@ impl Completer for AutoCompletion {
             }
             let mut file_candidates = file_candidates
                 .iter()
-                .map(|c| Pair {
-                    display: c.replacement.clone(),
-                    replacement: c.replacement.clone(),
+                .map(|c| {
+                    let rep = if c.replacement.ends_with('/') {
+                        c.replacement.clone()
+                    } else {
+                        format!("{} ", c.replacement)
+                    };
+                    Pair {
+                        display: rep.clone(),
+                        replacement: rep,
+                    }
                 })
                 .collect::<Vec<_>>();
 
@@ -151,12 +142,15 @@ impl Completer for AutoCompletion {
 
     /// Replaces the text in `line` from `start` to the cursor with `elected`.
     fn update(&self, line: &mut LineBuffer, start: usize, elected: &str, cl: &mut Changeset) {
-        let elected_pattern = self.format_completion(elected);
-
-        let (start, elected) = match line.rfind(' ') {
-            Some(s) => (s, elected_pattern.as_str()),
-            None => (start, elected),
-        };
+        // let elected_pattern = self.format_completion(elected);
+        //
+        // let (start, elected) = match line.rfind(' ') {
+        //     Some(s) => {
+        //         let pattern = format!(" {}", elected);
+        //         (s, pattern.clone().as_str())
+        //     }
+        //     None => (start, elected),
+        // };
 
         let end = line.pos();
         line.replace(start..end, elected, cl);
@@ -651,8 +645,8 @@ mod tests {
                     "file 'bar.txt' should not end with '/', got '{rep}'"
                 );
                 assert!(
-                    !rep.ends_with(' '),
-                    "file 'bar.txt' should not end with space, got '{rep}'"
+                    rep.ends_with(' '),
+                    "file 'bar.txt' should end with space, got '{rep}'"
                 );
             }
         }
