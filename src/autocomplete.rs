@@ -42,6 +42,19 @@ impl AutoCompletion {
         }
     }
 
+    fn format_completion(&self, elected: &str) -> String {
+        match longest_common_prefix(&[self.make_pair(elected)]) {
+            Some(lsp) => format!(" {}", lsp),
+            None => {
+                if elected.ends_with('/') {
+                    format!(" {}", elected)
+                } else {
+                    format!(" {} ", elected)
+                }
+            }
+        }
+    }
+
     /// Returns all executable files inside `dir` whose name starts with `partial_name`.
     fn find_executables_by_partial_name(dir: &Path, partial_name: &str) -> Vec<PathBuf> {
         let Ok(entries) = fs::read_dir(dir) else {
@@ -59,6 +72,13 @@ impl AutoCompletion {
                 (matches && path.is_file() && is_executable(&path)).then_some(path)
             })
             .collect()
+    }
+
+    fn make_pair(&self, name: &str) -> Pair {
+        Pair {
+            display: name.to_owned(),
+            replacement: name.to_owned(),
+        }
     }
 }
 
@@ -117,17 +137,6 @@ impl Completer for AutoCompletion {
                 })
                 .collect::<Vec<_>>();
 
-            // longest common prefix
-            if let Some(lcp) = longest_common_prefix(&file_candidates) {
-                return Ok((
-                    1,
-                    vec![Pair {
-                        display: String::from(lcp),
-                        replacement: String::from(lcp),
-                    }],
-                ));
-            }
-
             candidates.append(file_candidates.as_mut());
         }
 
@@ -138,14 +147,10 @@ impl Completer for AutoCompletion {
 
     /// Replaces the text in `line` from `start` to the cursor with `elected`.
     fn update(&self, line: &mut LineBuffer, start: usize, elected: &str, cl: &mut Changeset) {
-        let new_elected = if elected.ends_with('/') {
-            format!(" {}", elected)
-        } else {
-            format!(" {} ", elected)
-        };
+        let elected_pattern = self.format_completion(elected);
 
         let (start, elected) = match line.rfind(' ') {
-            Some(s) => (s, new_elected.as_str()),
+            Some(s) => (s, elected_pattern.as_str()),
             None => (start, elected),
         };
 
@@ -280,5 +285,367 @@ mod tests {
         let h = DefaultHistory::new();
         let (_, candidates) = ac.complete("pw", 2, &ctx(&h)).unwrap();
         assert!(candidates.iter().all(|p| p.replacement.ends_with(' ')));
+    }
+
+    // --- complete: file completion ---
+
+    #[test]
+    fn complete_file_single_match() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("myfile.txt"), b"").unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let h = DefaultHistory::new();
+        let prefix = format!("{}/myf", dir.path().display());
+        let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
+
+        assert_eq!(candidates.len(), 1, "expected exactly one file candidate");
+        assert!(
+            candidates[0].replacement.contains("myfile.txt"),
+            "replacement should contain 'myfile.txt', got '{}'",
+            candidates[0].replacement
+        );
+    }
+
+    #[test]
+    fn complete_file_single_dir_gets_slash() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("mydir")).unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let h = DefaultHistory::new();
+        let prefix = format!("{}/my", dir.path().display());
+        let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
+
+        assert_eq!(
+            candidates.len(),
+            1,
+            "expected exactly one directory candidate"
+        );
+        let rep = &candidates[0].replacement;
+        assert!(
+            rep.ends_with('/'),
+            "directory replacement should end with '/', got '{rep}'"
+        );
+        assert!(
+            !rep.ends_with("//"),
+            "replacement should not have double slash, got '{rep}'"
+        );
+    }
+
+    #[test]
+    fn complete_file_multiple_matches_all_returned() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("foo_alpha"), b"").unwrap();
+        fs::write(dir.path().join("foo_beta"), b"").unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let h = DefaultHistory::new();
+        let prefix = format!("{}/foo", dir.path().display());
+        let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
+
+        assert_eq!(candidates.len(), 2, "both matching files should be returned");
+        let reps: Vec<&str> = candidates.iter().map(|c| c.replacement.as_str()).collect();
+        assert!(reps.iter().any(|r| r.contains("foo_alpha")));
+        assert!(reps.iter().any(|r| r.contains("foo_beta")));
+    }
+
+    #[test]
+    fn complete_file_no_match_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("other.txt"), b"").unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let h = DefaultHistory::new();
+        let prefix = format!("{}/zzz", dir.path().display());
+        let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
+
+        assert!(
+            candidates.is_empty(),
+            "no files match prefix 'zzz', expected empty"
+        );
+    }
+
+    #[test]
+    fn complete_file_exact_name_still_completes() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("myfile"), b"").unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let h = DefaultHistory::new();
+        let prefix = format!("{}/myfile", dir.path().display());
+        let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
+
+        assert_eq!(
+            candidates.len(),
+            1,
+            "exact file name should still yield one candidate"
+        );
+        assert!(
+            candidates[0].replacement.contains("myfile"),
+            "replacement should contain 'myfile', got '{}'",
+            candidates[0].replacement
+        );
+    }
+
+    #[test]
+    fn complete_file_mixed_file_and_dir_both_returned() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("foo_file"), b"").unwrap();
+        fs::create_dir(dir.path().join("foo_dir")).unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let h = DefaultHistory::new();
+        let prefix = format!("{}/foo", dir.path().display());
+        let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
+
+        assert_eq!(candidates.len(), 2, "file and directory should both be returned");
+        let reps: Vec<&str> = candidates.iter().map(|c| c.replacement.as_str()).collect();
+        assert!(reps.iter().any(|r| r.contains("foo_file")));
+        assert!(reps.iter().any(|r| r.contains("foo_dir/")));
+    }
+
+    #[test]
+    fn complete_file_nested_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let subdir = dir.path().join("subdir");
+        fs::create_dir(&subdir).unwrap();
+        fs::write(subdir.join("target_file"), b"").unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let h = DefaultHistory::new();
+        let prefix = format!("{}/subdir/tar", dir.path().display());
+        let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert!(
+            candidates[0].replacement.contains("target_file"),
+            "replacement should contain 'target_file', got '{}'",
+            candidates[0].replacement
+        );
+    }
+
+    #[test]
+    fn complete_file_dir_entry_does_not_end_with_space() {
+        // Directories should end with '/' so the update() method knows not to
+        // append a trailing space (allowing further path completion).
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("somedir")).unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let h = DefaultHistory::new();
+        let prefix = format!("{}/some", dir.path().display());
+        let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert!(
+            !candidates[0].replacement.ends_with(' '),
+            "directory should not end with a space"
+        );
+        assert!(
+            candidates[0].replacement.ends_with('/'),
+            "directory should end with '/'"
+        );
+    }
+
+    #[test]
+    fn complete_file_three_matches_all_returned() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("bar_one"), b"").unwrap();
+        fs::write(dir.path().join("bar_two"), b"").unwrap();
+        fs::write(dir.path().join("bar_three"), b"").unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let h = DefaultHistory::new();
+        let prefix = format!("{}/bar", dir.path().display());
+        let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
+
+        assert_eq!(candidates.len(), 3, "all three matching files should be returned");
+        let reps: Vec<&str> = candidates.iter().map(|c| c.replacement.as_str()).collect();
+        assert!(reps.iter().any(|r| r.contains("bar_one")));
+        assert!(reps.iter().any(|r| r.contains("bar_two")));
+        assert!(reps.iter().any(|r| r.contains("bar_three")));
+    }
+
+    // --- progressive LCP through nested directories ---
+    //
+    // Given: xyz_foo/  xyz_foo_bar/  xyz_foo_bar_baz/
+    //
+    //   xyz_<TAB>         → "xyz_foo"        (LCP, no slash — not a unique dir yet)
+    //   xyz_foo_<TAB>     → "xyz_foo_bar"    (LCP, no slash — still ambiguous)
+    //   xyz_foo_bar_<TAB> → "xyz_foo_bar_baz/" (single match, slash from FilenameCompleter)
+
+    #[test]
+    fn complete_dir_progressive_lcp_step1() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("xyz_foo")).unwrap();
+        fs::create_dir(dir.path().join("xyz_foo_bar")).unwrap();
+        fs::create_dir(dir.path().join("xyz_foo_bar_baz")).unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let h = DefaultHistory::new();
+        let prefix = format!("{}/xyz_", dir.path().display());
+        let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
+
+        assert_eq!(candidates.len(), 3, "all three dirs should be returned");
+
+        // rustyline computes the LCP of all candidates and passes it to update().
+        // Verify format_completion produces the right string for that LCP.
+        let lcp = longest_common_prefix(&candidates).expect("candidates should have a common prefix");
+        assert!(lcp.ends_with("xyz_foo"), "LCP should extend to 'xyz_foo', got '{lcp}'");
+        assert!(!lcp.ends_with('/'), "LCP of multiple dirs should not have trailing slash");
+        let formatted = ac.format_completion(lcp);
+        assert!(formatted.contains("xyz_foo"), "formatted LCP should contain 'xyz_foo', got '{formatted}'");
+    }
+
+    #[test]
+    fn complete_dir_progressive_lcp_step2() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("xyz_foo")).unwrap();
+        fs::create_dir(dir.path().join("xyz_foo_bar")).unwrap();
+        fs::create_dir(dir.path().join("xyz_foo_bar_baz")).unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let h = DefaultHistory::new();
+        let prefix = format!("{}/xyz_foo_", dir.path().display());
+        let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
+
+        assert_eq!(candidates.len(), 2, "two dirs starting with 'xyz_foo_' should be returned");
+
+        let lcp = longest_common_prefix(&candidates).expect("candidates should have a common prefix");
+        assert!(lcp.ends_with("xyz_foo_bar"), "LCP should extend to 'xyz_foo_bar', got '{lcp}'");
+        assert!(!lcp.ends_with('/'), "LCP of multiple dirs should not have trailing slash");
+        let formatted = ac.format_completion(lcp);
+        assert!(formatted.contains("xyz_foo_bar"), "formatted LCP should contain 'xyz_foo_bar', got '{formatted}'");
+    }
+
+    #[test]
+    fn complete_dir_progressive_lcp_step3_single_match_gets_slash() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("xyz_foo")).unwrap();
+        fs::create_dir(dir.path().join("xyz_foo_bar")).unwrap();
+        fs::create_dir(dir.path().join("xyz_foo_bar_baz")).unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let h = DefaultHistory::new();
+        let prefix = format!("{}/xyz_foo_bar_", dir.path().display());
+        let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
+
+        assert_eq!(
+            candidates.len(),
+            1,
+            "single remaining dir should give one candidate"
+        );
+        let rep = &candidates[0].replacement;
+        assert!(
+            rep.ends_with("xyz_foo_bar_baz/"),
+            "sole dir match should end with '/', got '{rep}'"
+        );
+        assert!(
+            !rep.ends_with("//"),
+            "replacement must not have double slash, got '{rep}'"
+        );
+    }
+
+    // --- single directory completion: trailing slash, no trailing space ---
+    //
+    //   cd proj<TAB> → cd project/   (slash immediately follows; no space)
+
+    #[test]
+    fn complete_dir_single_match_ends_with_slash_not_space() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("project")).unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let h = DefaultHistory::new();
+        let prefix = format!("{}/proj", dir.path().display());
+        let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        let rep = &candidates[0].replacement;
+        assert!(
+            rep.ends_with("project/"),
+            "sole dir should end with '/', got '{rep}'"
+        );
+        assert!(!rep.ends_with("//"), "no double slash, got '{rep}'");
+        assert!(
+            !rep.ends_with(' '),
+            "no trailing space on directory completion, got '{rep}'"
+        );
+    }
+
+    // --- listing behavior: multiple candidates with no further LCP ---
+    //
+    //   stat <TAB><TAB> should eventually show:  bar.txt  foo/
+    //   (dirs with trailing /, files without extra character)
+    //
+    // When the LCP equals what the user already typed, candidates should be
+    // returned individually so rustyline can display the list on a second TAB.
+
+    #[test]
+    fn complete_file_listing_dirs_have_slash_files_do_not() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("bar.txt"), b"").unwrap();
+        fs::create_dir(dir.path().join("foo")).unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let h = DefaultHistory::new();
+        // Type just the directory path with no filename prefix — both entries are candidates.
+        let prefix = format!("{}/", dir.path().display());
+        let (_, candidates) = ac.complete(&prefix, prefix.len(), &ctx(&h)).unwrap();
+
+        // Every returned directory candidate must end with '/'.
+        // File candidates must NOT end with '/' or ' '.
+        for c in &candidates {
+            let rep = &c.replacement;
+            if rep.contains("foo") {
+                assert!(rep.ends_with('/'), "directory 'foo' should end with '/', got '{rep}'");
+                assert!(!rep.ends_with("//"), "no double slash, got '{rep}'");
+            }
+            if rep.contains("bar.txt") {
+                assert!(!rep.ends_with('/'), "file 'bar.txt' should not end with '/', got '{rep}'");
+                assert!(!rep.ends_with(' '), "file 'bar.txt' should not end with space, got '{rep}'");
+            }
+        }
+    }
+
+    // --- format_completion ---
+    //
+    // format_completion formats the elected candidate for insertion by update().
+    // Directories must end with '/' (no space), files must not end with '/'.
+
+    #[test]
+    fn format_completion_file_no_trailing_slash() {
+        let ac = AutoCompletion::with_paths(vec![]);
+        let result = ac.format_completion("myfile.txt");
+        assert!(result.contains("myfile.txt"), "should contain filename, got '{result}'");
+        assert!(!result.ends_with('/'), "file should not end with '/', got '{result}'");
+    }
+
+    #[test]
+    fn format_completion_directory_ends_with_slash_not_space() {
+        let ac = AutoCompletion::with_paths(vec![]);
+        let result = ac.format_completion("project/");
+        assert!(result.ends_with('/'), "directory should end with '/', got '{result}'");
+        assert!(!result.ends_with(' '), "directory should not end with space, got '{result}'");
+        assert!(!result.ends_with("//"), "no double slash, got '{result}'");
+    }
+
+    #[test]
+    fn format_completion_command_preserves_trailing_space() {
+        // Command candidates already carry a trailing space from complete().
+        let ac = AutoCompletion::with_paths(vec![]);
+        let result = ac.format_completion("echo ");
+        assert!(result.contains("echo"), "should contain command name, got '{result}'");
+        assert!(!result.ends_with('/'), "command should not end with '/', got '{result}'");
+    }
+
+    #[test]
+    fn format_completion_deep_path_directory() {
+        // Completing into a nested dir: /tmp/abc/sub/ — the trailing slash must be preserved.
+        let ac = AutoCompletion::with_paths(vec![]);
+        let result = ac.format_completion("/tmp/abc/sub/");
+        assert!(result.ends_with('/'), "deep dir path should end with '/', got '{result}'");
+        assert!(!result.ends_with("//"), "no double slash, got '{result}'");
     }
 }
