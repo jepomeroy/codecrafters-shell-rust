@@ -3,6 +3,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    sync::Mutex,
 };
 
 use rustyline::{
@@ -22,7 +23,7 @@ pub(crate) struct AutoCompletion {
     paths: Vec<String>,
     file_completer: FilenameCompleter,
     cmd_completions: SharedCompletions,
-    cmd_comp_cache: HashMap<String, Vec<String>>,
+    cmd_comp_cache: Mutex<HashMap<String, Vec<String>>>,
 }
 
 impl AutoCompletion {
@@ -32,22 +33,19 @@ impl AutoCompletion {
             paths: get_paths(),
             file_completer: FilenameCompleter::new(),
             cmd_completions,
-            cmd_comp_cache: HashMap::new(),
+            cmd_comp_cache: Mutex::new(HashMap::new()),
         }
     }
 
     #[cfg(test)]
     fn with_paths(paths: Vec<String>) -> Self {
-        use std::{
-            collections::HashMap,
-            sync::{Arc, Mutex},
-        };
+        use std::sync::Arc;
 
         Self {
             paths,
             file_completer: FilenameCompleter::new(),
             cmd_completions: Arc::new(Mutex::new(HashMap::new())),
-            cmd_comp_cache: HashMap::new(),
+            cmd_comp_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -70,23 +68,45 @@ impl AutoCompletion {
             .collect()
     }
 
-    fn get_command_completions(&self, cmd: &str) -> Option<Vec<String>> {
-        if let Some(cmd_comps) = self.cmd_comp_cache.get(cmd) {
-            return Some(cmd_comps.clone());
-        }
-
-        let cmd_comp = self.cmd_completions.lock().unwrap();
-
-        if let Some(comp) = cmd_comp.get(cmd)
-            && let Ok(output) = Command::new(comp).output()
+    fn get_command_completions(
+        &self,
+        cmd: &str,
+        line: &str,
+        partial_arg: &str,
+    ) -> Option<Vec<String>> {
         {
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let completions: Vec<String> = stdout.lines().map(|s| s.to_string()).collect();
-
-            return Some(completions);
+            let cache = self.cmd_comp_cache.lock().unwrap();
+            if let Some(cached) = cache.get(cmd) {
+                return Some(cached.clone());
+            }
         }
 
-        None
+        let comp = self.cmd_completions.lock().unwrap().get(cmd)?.clone();
+
+        let prev_word = line.split_whitespace().rev().nth(1).unwrap_or(cmd);
+
+        let output = Command::new(&comp)
+            .arg(cmd)
+            .arg(partial_arg)
+            .arg(prev_word)
+            .env("COMP_LINE", line)
+            .env("COMP_POINT", line.len().to_string())
+            .output()
+            .ok()?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let completions: Vec<String> = stdout.lines().map(|s| s.to_string()).collect();
+
+        if completions.is_empty() {
+            return None;
+        }
+
+        self.cmd_comp_cache
+            .lock()
+            .unwrap()
+            .insert(cmd.to_string(), completions.clone());
+
+        Some(completions)
     }
 }
 
@@ -163,26 +183,26 @@ impl Completer for AutoCompletion {
         // Command Args completion
         let parts: Vec<&str> = line.splitn(2, ' ').collect();
 
-        if parts.len() == 2
-            && let Some(cmd_completions) = self.get_command_completions(parts[0])
-        {
+        if parts.len() == 2 {
             let partial_arg = parts[1];
             let cmd_prefix = format!("{} ", parts[0]);
 
-            let mut cmd_completions: Vec<Pair> = cmd_completions
-                .iter()
-                .filter(|c| c.starts_with(partial_arg))
-                .map(|c| {
-                    let replacement = format!("{}{} ", cmd_prefix, c);
-                    Pair {
-                        display: replacement.clone(),
-                        replacement,
-                    }
-                })
-                .collect();
+            if let Some(cmd_completions) = self.get_command_completions(parts[0], line, partial_arg) {
+                let mut cmd_completions: Vec<Pair> = cmd_completions
+                    .iter()
+                    .filter(|c| c.starts_with(partial_arg))
+                    .map(|c| {
+                        let replacement = format!("{}{} ", cmd_prefix, c);
+                        Pair {
+                            display: replacement.clone(),
+                            replacement,
+                        }
+                    })
+                    .collect();
 
-            if !cmd_completions.is_empty() {
-                candidates.append(cmd_completions.as_mut());
+                if !cmd_completions.is_empty() {
+                    candidates.append(cmd_completions.as_mut());
+                }
             }
         }
 
