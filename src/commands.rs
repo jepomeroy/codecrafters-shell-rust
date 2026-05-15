@@ -3,7 +3,7 @@ use std::io::stdout;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use crate::builtin::Builtin;
+use crate::builtin::{Builtin, SharedCompletions};
 use crate::redirect::{Redirect, RedirectType};
 use crate::utils::{get_paths, is_executable};
 
@@ -33,6 +33,10 @@ impl Commands {
         let paths = get_paths();
         let bi = Builtin::new();
         Self { paths, bi }
+    }
+
+    pub(crate) fn shared_completions(&self) -> SharedCompletions {
+        self.bi.completions()
     }
 
     /// Runs `cmd` with `args` as a child process, prints its stdout, and returns its exit code.

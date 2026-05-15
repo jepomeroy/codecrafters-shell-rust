@@ -3,16 +3,25 @@ use std::env;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::exit;
+use std::sync::{Arc, Mutex};
+
+pub(crate) type SharedCompletions = Arc<Mutex<HashMap<String, String>>>;
 
 pub(crate) struct Builtin {
-    completions: HashMap<String, String>,
+    completions: SharedCompletions,
 }
 
 impl Builtin {
     pub(crate) fn new() -> Self {
-        Self {
-            completions: HashMap::new(),
-        }
+        Self::with_completions(Arc::new(Mutex::new(HashMap::new())))
+    }
+
+    pub(crate) fn with_completions(completions: SharedCompletions) -> Self {
+        Self { completions }
+    }
+
+    pub(crate) fn completions(&self) -> SharedCompletions {
+        Arc::clone(&self.completions)
     }
 
     /// Changes the current working directory.
@@ -42,11 +51,13 @@ impl Builtin {
 
     /// Prints a completion error message for `args[1]` if `args` has the correct format; otherwise,
     /// prints a blank line. Always returns `0`.
-    pub(crate) fn complete<W: Write>(&mut self, args: &[String], out: &mut W) -> i32 {
+    pub(crate) fn complete<W: Write>(&self, args: &[String], out: &mut W) -> i32 {
         if args.is_empty() {
             writeln!(out).ok();
             return 0;
         }
+
+        let mut completions = self.completions.lock().unwrap();
 
         match args[0].as_str() {
             "-p" => {
@@ -55,7 +66,7 @@ impl Builtin {
                     return 0;
                 }
 
-                match self.completions.get(&args[1]) {
+                match completions.get(&args[1]) {
                     Some(v) => writeln!(out, "{}", v).ok(),
                     None => {
                         writeln!(out, "complete: {}: no completion specification", args[1]).ok()
@@ -68,10 +79,7 @@ impl Builtin {
                     return 0;
                 }
 
-                self.completions.insert(
-                    args[2].clone(),
-                    format!("complete -C '{}' {}", args[1], &args[2]),
-                );
+                completions.insert(args[2].to_owned(), args[1].to_owned());
                 return 0;
             }
             _ => {
@@ -259,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_completion_set_a_completion() {
-        let mut bi = Builtin::new();
+        let bi = Builtin::new();
         let mut out = vec![];
         assert_eq!(
             bi.complete(
@@ -281,9 +289,6 @@ mod tests {
             0
         );
 
-        assert_eq!(
-            String::from_utf8(out).unwrap(),
-            "complete -C '/path/to/git/completer' git\n"
-        );
+        assert_eq!(String::from_utf8(out).unwrap(), "/path/to/git/completer\n");
     }
 }

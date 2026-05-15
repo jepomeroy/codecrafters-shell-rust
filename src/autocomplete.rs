@@ -1,7 +1,8 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 use rustyline::{
@@ -11,7 +12,7 @@ use rustyline::{
 };
 
 use crate::{
-    builtin::Builtin,
+    builtin::{Builtin, SharedCompletions},
     utils::{get_paths, is_executable},
 };
 
@@ -20,25 +21,33 @@ use crate::{
 pub(crate) struct AutoCompletion {
     paths: Vec<String>,
     file_completer: FilenameCompleter,
+    cmd_completions: SharedCompletions,
+    cmd_comp_cache: HashMap<String, Vec<String>>,
 }
 
 impl AutoCompletion {
     /// Creates a new `AutoCompletion` by reading the `PATH` environment variable.
-    pub(crate) fn new() -> Self {
-        let file_completer = FilenameCompleter::new();
-        let paths = get_paths();
+    pub(crate) fn new(cmd_completions: SharedCompletions) -> Self {
         Self {
-            paths,
-            file_completer,
+            paths: get_paths(),
+            file_completer: FilenameCompleter::new(),
+            cmd_completions,
+            cmd_comp_cache: HashMap::new(),
         }
     }
 
     #[cfg(test)]
     fn with_paths(paths: Vec<String>) -> Self {
-        let file_completer = FilenameCompleter::new();
+        use std::{
+            collections::HashMap,
+            sync::{Arc, Mutex},
+        };
+
         Self {
             paths,
-            file_completer,
+            file_completer: FilenameCompleter::new(),
+            cmd_completions: Arc::new(Mutex::new(HashMap::new())),
+            cmd_comp_cache: HashMap::new(),
         }
     }
 
@@ -60,6 +69,25 @@ impl AutoCompletion {
             })
             .collect()
     }
+
+    fn get_command_completions(&self, cmd: &str) -> Option<Vec<String>> {
+        if let Some(cmd_comps) = self.cmd_comp_cache.get(cmd) {
+            return Some(cmd_comps.clone());
+        }
+
+        let cmd_comp = self.cmd_completions.lock().unwrap();
+
+        if let Some(comp) = cmd_comp.get(cmd)
+            && let Ok(output) = Command::new(comp).output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let completions: Vec<String> = stdout.lines().map(|s| s.to_string()).collect();
+
+            return Some(completions);
+        }
+
+        None
+    }
 }
 
 impl Completer for AutoCompletion {
@@ -72,6 +100,7 @@ impl Completer for AutoCompletion {
         pos: usize,
         ctx: &Context<'_>,
     ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
+        let mut start = 0;
         let commands = Builtin::builtin_cmds();
         let mut candidates = Vec::new();
         let mut seen = HashSet::new();
@@ -108,7 +137,7 @@ impl Completer for AutoCompletion {
             }
         }
 
-        let mut start = 0;
+        // File Completion
         if let Ok((file_start, file_candidates)) = self.file_completer.complete(line, pos, ctx) {
             if !file_candidates.is_empty() {
                 start = file_start;
@@ -129,6 +158,32 @@ impl Completer for AutoCompletion {
                 .collect::<Vec<_>>();
 
             candidates.append(file_candidates.as_mut());
+        }
+
+        // Command Args completion
+        let parts: Vec<&str> = line.splitn(2, ' ').collect();
+
+        if parts.len() == 2
+            && let Some(cmd_completions) = self.get_command_completions(parts[0])
+        {
+            let partial_arg = parts[1];
+            let cmd_prefix = format!("{} ", parts[0]);
+
+            let mut cmd_completions: Vec<Pair> = cmd_completions
+                .iter()
+                .filter(|c| c.starts_with(partial_arg))
+                .map(|c| {
+                    let replacement = format!("{}{} ", cmd_prefix, c);
+                    Pair {
+                        display: replacement.clone(),
+                        replacement,
+                    }
+                })
+                .collect();
+
+            if !cmd_completions.is_empty() {
+                candidates.append(cmd_completions.as_mut());
+            }
         }
 
         candidates.sort_by(|a, b| a.display.cmp(&b.display));
@@ -286,7 +341,10 @@ mod tests {
         assert_eq!(candidates.len(), 1);
         let rep = &candidates[0].replacement;
         assert!(rep.contains("myfile.txt"), "got '{rep}'");
-        assert!(rep.ends_with(' '), "file candidate should have trailing space, got '{rep}'");
+        assert!(
+            rep.ends_with(' '),
+            "file candidate should have trailing space, got '{rep}'"
+        );
     }
 
     #[test]
@@ -301,9 +359,15 @@ mod tests {
 
         assert_eq!(candidates.len(), 1);
         let rep = &candidates[0].replacement;
-        assert!(rep.ends_with('/'), "directory should end with '/', got '{rep}'");
+        assert!(
+            rep.ends_with('/'),
+            "directory should end with '/', got '{rep}'"
+        );
         assert!(!rep.ends_with("//"), "no double slash, got '{rep}'");
-        assert!(!rep.ends_with(' '), "directory should not end with space, got '{rep}'");
+        assert!(
+            !rep.ends_with(' '),
+            "directory should not end with space, got '{rep}'"
+        );
     }
 
     #[test]
@@ -500,7 +564,10 @@ mod tests {
         assert_eq!(candidates.len(), 2);
         let lcp = longest_common_prefix(&candidates).expect("should have LCP");
         assert!(lcp.ends_with("foo_"), "LCP should be 'foo_', got '{lcp}'");
-        assert!(!lcp.ends_with(' '), "partial LCP should not end with space, got '{lcp}'");
+        assert!(
+            !lcp.ends_with(' '),
+            "partial LCP should not end with space, got '{lcp}'"
+        );
     }
 
     // --- listing: dirs end with '/', files end with ' ' ---
@@ -519,13 +586,72 @@ mod tests {
         for c in &candidates {
             let rep = &c.replacement;
             if rep.contains("foo") {
-                assert!(rep.ends_with('/'), "directory should end with '/', got '{rep}'");
+                assert!(
+                    rep.ends_with('/'),
+                    "directory should end with '/', got '{rep}'"
+                );
                 assert!(!rep.ends_with("//"), "no double slash, got '{rep}'");
             }
             if rep.contains("bar.txt") {
-                assert!(rep.ends_with(' '), "file should end with space, got '{rep}'");
-                assert!(!rep.ends_with('/'), "file should not end with '/', got '{rep}'");
+                assert!(
+                    rep.ends_with(' '),
+                    "file should end with space, got '{rep}'"
+                );
+                assert!(
+                    !rep.ends_with('/'),
+                    "file should not end with '/', got '{rep}'"
+                );
             }
         }
     }
+
+    // --- complete: command completion ---
+
+    #[test]
+    fn complete_command_completion() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("docker_comp");
+        fs::write(&bin, "#!/usr/bin/env python3\nprint(\"run\")").unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        let mut cmd_comp = ac.cmd_completions.lock().unwrap();
+        cmd_comp.insert("docker".to_string(), bin.to_str().unwrap().to_owned());
+        drop(cmd_comp);
+
+        let h = DefaultHistory::new();
+
+        // "docker <TAB>" — no partial arg, all completions offered
+        let (_, candidates) = ac.complete("docker ", 7, &ctx(&h)).unwrap();
+        let replacements: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
+        assert!(replacements.contains(&"docker run "));
+
+        // "docker r<TAB>" — partial arg filters to matching completions
+        let (_, candidates) = ac.complete("docker r", 8, &ctx(&h)).unwrap();
+        let replacements: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
+        assert!(replacements.contains(&"docker run "));
+
+        // "docker x<TAB>" — no completions start with "x"
+        let (_, candidates) = ac.complete("docker x", 8, &ctx(&h)).unwrap();
+        let replacements: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
+        assert!(!replacements.contains(&"docker run "));
+    }
+
+    // #[test]
+    // fn complete_builtin_multiple_matches() {
+    //     let ac = AutoCompletion::with_paths(vec![]);
+    //     let h = DefaultHistory::new();
+    //     let (_, candidates) = ac.complete("e", 1, &ctx(&h)).unwrap();
+    //     let replacements: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
+    //     assert!(replacements.contains(&"echo "));
+    //     assert!(replacements.contains(&"exit "));
+    // }
+    //
+    // #[test]
+    // fn complete_no_match_returns_empty() {
+    //     let ac = AutoCompletion::with_paths(vec![]);
+    //     let h = DefaultHistory::new();
+    //     let (_, candidates) = ac.complete("zzz_no_such_cmd", 15, &ctx(&h)).unwrap();
+    //     assert!(candidates.is_empty());
+    // }
 }
