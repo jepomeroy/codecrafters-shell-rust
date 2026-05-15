@@ -67,7 +67,7 @@ impl Builtin {
                 }
 
                 match completions.get(&args[1]) {
-                    Some(v) => writeln!(out, "{}", v).ok(),
+                    Some(v) => writeln!(out, "complete -C '{}' {}", v, args[1]).ok(),
                     None => {
                         writeln!(out, "complete: {}: no completion specification", args[1]).ok()
                     }
@@ -289,6 +289,9 @@ mod tests {
             0
         );
 
-        assert_eq!(String::from_utf8(out).unwrap(), "/path/to/git/completer\n");
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "complete -C '/path/to/git/completer' git\n"
+        );
     }
 }

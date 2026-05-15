@@ -157,6 +157,34 @@ impl Completer for AutoCompletion {
             }
         }
 
+        // Command Args completion — check before file completion so we can return early
+        // and avoid mixing candidates that have different start assumptions.
+        let parts: Vec<&str> = line.splitn(2, ' ').collect();
+
+        if parts.len() == 2 {
+            let partial_arg = parts[1];
+            let arg_start = parts[0].len() + 1;
+
+            if let Some(cmd_completions) = self.get_command_completions(parts[0], line, partial_arg) {
+                let mut cmd_completions: Vec<Pair> = cmd_completions
+                    .iter()
+                    .filter(|c| c.starts_with(partial_arg))
+                    .map(|c| {
+                        let replacement = format!("{} ", c);
+                        Pair {
+                            display: replacement.clone(),
+                            replacement,
+                        }
+                    })
+                    .collect();
+
+                if !cmd_completions.is_empty() {
+                    cmd_completions.sort_by(|a, b| a.display.cmp(&b.display));
+                    return Ok((arg_start, cmd_completions));
+                }
+            }
+        }
+
         // File Completion
         if let Ok((file_start, file_candidates)) = self.file_completer.complete(line, pos, ctx) {
             if !file_candidates.is_empty() {
@@ -178,32 +206,6 @@ impl Completer for AutoCompletion {
                 .collect::<Vec<_>>();
 
             candidates.append(file_candidates.as_mut());
-        }
-
-        // Command Args completion
-        let parts: Vec<&str> = line.splitn(2, ' ').collect();
-
-        if parts.len() == 2 {
-            let partial_arg = parts[1];
-            let cmd_prefix = format!("{} ", parts[0]);
-
-            if let Some(cmd_completions) = self.get_command_completions(parts[0], line, partial_arg) {
-                let mut cmd_completions: Vec<Pair> = cmd_completions
-                    .iter()
-                    .filter(|c| c.starts_with(partial_arg))
-                    .map(|c| {
-                        let replacement = format!("{}{} ", cmd_prefix, c);
-                        Pair {
-                            display: replacement.clone(),
-                            replacement,
-                        }
-                    })
-                    .collect();
-
-                if !cmd_completions.is_empty() {
-                    candidates.append(cmd_completions.as_mut());
-                }
-            }
         }
 
         candidates.sort_by(|a, b| a.display.cmp(&b.display));
@@ -641,20 +643,22 @@ mod tests {
 
         let h = DefaultHistory::new();
 
-        // "docker <TAB>" — no partial arg, all completions offered
-        let (_, candidates) = ac.complete("docker ", 7, &ctx(&h)).unwrap();
+        // "docker <TAB>" — no partial arg, all completions offered; start after "docker "
+        let (start, candidates) = ac.complete("docker ", 7, &ctx(&h)).unwrap();
+        assert_eq!(start, 7);
         let replacements: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
-        assert!(replacements.contains(&"docker run "));
+        assert!(replacements.contains(&"run "));
 
         // "docker r<TAB>" — partial arg filters to matching completions
-        let (_, candidates) = ac.complete("docker r", 8, &ctx(&h)).unwrap();
+        let (start, candidates) = ac.complete("docker r", 8, &ctx(&h)).unwrap();
+        assert_eq!(start, 7);
         let replacements: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
-        assert!(replacements.contains(&"docker run "));
+        assert!(replacements.contains(&"run "));
 
         // "docker x<TAB>" — no completions start with "x"
         let (_, candidates) = ac.complete("docker x", 8, &ctx(&h)).unwrap();
         let replacements: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
-        assert!(!replacements.contains(&"docker run "));
+        assert!(!replacements.contains(&"run "));
     }
 
     // #[test]
