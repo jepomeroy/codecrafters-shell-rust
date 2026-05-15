@@ -10,6 +10,7 @@ use crate::utils::{get_paths, is_executable};
 /// Resolves and executes shell commands against the entries in `PATH`.
 pub(crate) struct Commands {
     paths: Vec<String>,
+    bi: Builtin,
 }
 
 enum ParserState {
@@ -30,7 +31,8 @@ impl Commands {
     /// Creates a new `Commands` instance by reading the `PATH` environment variable.
     pub(crate) fn new() -> Self {
         let paths = get_paths();
-        Self { paths }
+        let bi = Builtin::new();
+        Self { paths, bi }
     }
 
     /// Runs `cmd` with `args` as a child process, prints its stdout, and returns its exit code.
@@ -250,39 +252,40 @@ impl Commands {
     }
 
     /// Parses and dispatches a full command line, routing to builtins or external executables.
-    pub(crate) fn process_command(&self, input: &str) {
+    pub(crate) fn process_command(&mut self, input: &str) {
         match Commands::parse_cmd(input) {
             Ok((cmd, args)) => {
                 match cmd.as_str() {
                     "cd" => {
                         args.iter().for_each(|p| {
-                            let _ = Builtin::cd(p);
+                            let _ = self.bi.cd(p);
                         });
 
                         0
                     }
-                    "complete" => Builtin::new().complete(&args, &mut stdout()),
+                    "complete" => self.bi.complete(&args, &mut stdout()),
                     "echo" => {
                         if let Some(cmd_path) = self.is_executable_command(&cmd) {
                             self.execute_command(&cmd_path, args);
                         } else {
-                            Builtin::echo(args.iter().map(|s| s.as_str()).collect(), &mut stdout());
+                            self.bi
+                                .echo(args.iter().map(|s| s.as_str()).collect(), &mut stdout());
                         }
 
                         0
                     }
                     "exit" => Builtin::exit(),
-                    "pwd" => Builtin::pwd(),
+                    "pwd" => self.bi.pwd(),
                     "type" => {
                         for arg in args.iter() {
-                            Builtin::check_type(arg, self.is_executable_command(arg));
+                            self.bi.check_type(arg, self.is_executable_command(arg));
                         }
 
                         0
                     }
                     _ => match self.is_executable_command(&cmd) {
                         Some(_) => self.execute_command(&cmd, args),
-                        None => Builtin::unknown(&cmd),
+                        None => self.bi.unknown(&cmd),
                     },
                 };
             }
@@ -503,7 +506,10 @@ mod tests {
 
     #[test]
     fn test_is_executable_not_found_empty_paths() {
-        let cmds = Commands { paths: vec![] };
+        let cmds = Commands {
+            paths: vec![],
+            bi: Builtin::new(),
+        };
         assert!(cmds.is_executable_command("ls").is_none());
     }
 
@@ -511,6 +517,7 @@ mod tests {
     fn test_is_executable_not_found_wrong_path() {
         let cmds = Commands {
             paths: vec!["/nonexistent/path/xyz_shell_test".to_string()],
+            bi: Builtin::new(),
         };
         assert!(cmds.is_executable_command("ls").is_none());
     }
@@ -527,6 +534,7 @@ mod tests {
 
         let cmds = Commands {
             paths: vec![tmpdir.to_string_lossy().into_owned()],
+            bi: Builtin::new(),
         };
         let result = cmds.is_executable_command("myfakeshellcmd");
         let _ = fs::remove_dir_all(&tmpdir);
@@ -547,6 +555,7 @@ mod tests {
 
         let cmds = Commands {
             paths: vec![tmpdir.to_string_lossy().into_owned()],
+            bi: Builtin::new(),
         };
         let result = cmds.is_executable_command("noexecfile");
         let _ = fs::remove_dir_all(&tmpdir);

@@ -19,7 +19,7 @@ impl Builtin {
     ///
     /// An empty string or `"~"` navigates to the user's home directory.
     /// Returns `0` on success, `1` if the path does not exist or `HOME` is unset.
-    pub(crate) fn cd(args: &str) -> i32 {
+    pub(crate) fn cd(&self, args: &str) -> i32 {
         let path = match args {
             "" | "~" => match env::home_dir() {
                 Some(home) => home,
@@ -84,7 +84,7 @@ impl Builtin {
     }
 
     /// Prints `args` joined by a single space followed by a newline. Always returns `0`.
-    pub(crate) fn echo<W: Write>(args: Vec<&str>, out: &mut W) -> i32 {
+    pub(crate) fn echo<W: Write>(&self, args: Vec<&str>, out: &mut W) -> i32 {
         writeln!(out, "{}", args.join(" ")).ok();
 
         0
@@ -99,7 +99,7 @@ impl Builtin {
     ///
     /// Pass the resolved executable path in `arg_path` when the command was found in `PATH`;
     /// pass `None` if it was not found. Always returns `0`.
-    pub(crate) fn check_type(type_arg: &str, arg_path: Option<String>) -> i32 {
+    pub(crate) fn check_type(&self, type_arg: &str, arg_path: Option<String>) -> i32 {
         if Builtin::builtin_cmds().contains(&type_arg) {
             println!("{} is a shell builtin", type_arg);
         } else if let Some(path) = arg_path {
@@ -112,7 +112,7 @@ impl Builtin {
     }
 
     /// Prints the current working directory to stdout. Always returns `0`.
-    pub(crate) fn pwd() -> i32 {
+    pub(crate) fn pwd(&self) -> i32 {
         match env::current_dir() {
             Ok(path) => println!("{}", path.display()),
             Err(e) => eprintln!("Error getting current directory: {}", e),
@@ -122,7 +122,7 @@ impl Builtin {
     }
 
     /// Prints a "command not found" message for `cmd`. Always returns `0`.
-    pub(crate) fn unknown(cmd: &str) -> i32 {
+    pub(crate) fn unknown(&self, cmd: &str) -> i32 {
         println!("{}: command not found", cmd);
 
         0
@@ -149,37 +149,43 @@ mod tests {
 
     #[test]
     fn test_echo_no_args_returns_zero() {
+        let bi = Builtin::new();
         let mut out = vec![];
-        assert_eq!(Builtin::echo(vec![], &mut out), 0);
+        assert_eq!(bi.echo(vec![], &mut out), 0);
         assert_eq!(String::from_utf8(out).unwrap(), "\n");
     }
 
     #[test]
     fn test_echo_with_args_returns_zero() {
+        let bi = Builtin::new();
         let mut out = vec![];
-        assert_eq!(Builtin::echo(vec!["hello", "world"], &mut out), 0);
+        assert_eq!(bi.echo(vec!["hello", "world"], &mut out), 0);
         assert_eq!(String::from_utf8(out).unwrap(), "hello world\n");
     }
 
     #[test]
     fn test_pwd_returns_zero() {
-        assert_eq!(Builtin::pwd(), 0);
+        let bi = Builtin::new();
+        assert_eq!(bi.pwd(), 0);
     }
 
     #[test]
     fn test_unknown_returns_zero() {
-        assert_eq!(Builtin::unknown("nope"), 0);
+        let bi = Builtin::new();
+        assert_eq!(bi.unknown("nope"), 0);
     }
 
     #[test]
     fn test_cd_invalid_path_returns_one() {
-        assert_eq!(Builtin::cd("/this/path/does/not/exist/xyz_shell_test"), 1);
+        let bi = Builtin::new();
+        assert_eq!(bi.cd("/this/path/does/not/exist/xyz_shell_test"), 1);
     }
 
     #[test]
     fn test_cd_valid_path_returns_zero() {
+        let bi = Builtin::new();
         let orig = env::current_dir().unwrap();
-        let result = Builtin::cd("/tmp");
+        let result = bi.cd("/tmp");
         // Restore regardless of outcome so we don't pollute other tests.
         let _ = env::set_current_dir(&orig);
         assert_eq!(result, 0);
@@ -187,29 +193,27 @@ mod tests {
 
     #[test]
     fn test_check_type_builtin_returns_zero() {
-        assert_eq!(Builtin::check_type("echo", None), 0);
+        let bi = Builtin::new();
+        assert_eq!(bi.check_type("echo", None), 0);
     }
 
     #[test]
     fn test_check_type_with_path_returns_zero() {
-        assert_eq!(
-            Builtin::check_type("ls", Some("/usr/bin/ls".to_string())),
-            0
-        );
+        let bi = Builtin::new();
+        assert_eq!(bi.check_type("ls", Some("/usr/bin/ls".to_string())), 0);
     }
 
     #[test]
     fn test_check_type_unknown_returns_zero() {
-        assert_eq!(Builtin::check_type("notabuiltin_xyz", None), 0);
+        let bi = Builtin::new();
+        assert_eq!(bi.check_type("notabuiltin_xyz", None), 0);
     }
 
     #[test]
     fn test_check_type_builtin_not_classified_as_path() {
+        let bi = Builtin::new();
         // A builtin should be reported as builtin even when a path is provided.
-        assert_eq!(
-            Builtin::check_type("pwd", Some("/usr/bin/pwd".to_string())),
-            0
-        );
+        assert_eq!(bi.check_type("pwd", Some("/usr/bin/pwd".to_string())), 0);
     }
 
     #[test]

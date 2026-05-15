@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     rl.set_helper(Some(AutoCompletion::new()));
 
-    let commands = Commands::new();
+    let mut commands = Commands::new();
     loop {
         let readline = rl.readline("$ ");
         match readline {
