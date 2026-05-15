@@ -261,7 +261,7 @@ impl Commands {
 
                         0
                     }
-                    "complete" => Builtin::complete(&args, &mut stdout()),
+                    "complete" => Builtin::new().complete(&args, &mut stdout()),
                     "echo" => {
                         if let Some(cmd_path) = self.is_executable_command(&cmd) {
                             self.execute_command(&cmd_path, args);
