@@ -286,7 +286,7 @@ impl Commands {
                     }
                     "exit" => Builtin::exit(),
                     "jobs" => {
-                        // don't do anything for now
+                        self.jobs.print_jobs();
                         0
                     }
                     "pwd" => self.bi.pwd(),
