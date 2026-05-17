@@ -71,30 +71,33 @@ impl AutoCompletion {
     fn get_command_completions(
         &self,
         cmd: &str,
-        line: &str,
+        prev_word: &str,
         partial_arg: &str,
     ) -> Option<Vec<String>> {
+        let key = if prev_word.is_empty() {
+            cmd.to_string()
+        } else {
+            format!("{} {}", cmd, prev_word)
+        };
+
         {
             let cache = self.cmd_comp_cache.lock().unwrap();
-            if let Some(cached) = cache.get(cmd) {
+            if let Some(cached) = cache.get(&key) {
                 return Some(cached.clone());
             }
         }
 
         let comp = self.cmd_completions.lock().unwrap().get(cmd)?.clone();
 
-        let prev_word = line.split_whitespace().rev().nth(1).unwrap_or(cmd);
-
         let output = Command::new(&comp)
             .arg(cmd)
             .arg(partial_arg)
             .arg(prev_word)
-            .env("COMP_LINE", line)
-            .env("COMP_POINT", line.len().to_string())
             .output()
             .ok()?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
         let completions: Vec<String> = stdout.lines().map(|s| s.to_string()).collect();
 
         if completions.is_empty() {
@@ -104,7 +107,7 @@ impl AutoCompletion {
         self.cmd_comp_cache
             .lock()
             .unwrap()
-            .insert(cmd.to_string(), completions.clone());
+            .insert(key, completions.clone());
 
         Some(completions)
     }
@@ -159,13 +162,22 @@ impl Completer for AutoCompletion {
 
         // Command Args completion — check before file completion so we can return early
         // and avoid mixing candidates that have different start assumptions.
-        let parts: Vec<&str> = line.splitn(2, ' ').collect();
+        let parts: Vec<&str> = line.splitn(3, ' ').collect();
 
-        if parts.len() == 2 {
-            let partial_arg = parts[1];
-            let arg_start = parts[0].len() + 1;
+        if !parts.is_empty() && parts.len() >= 2 {
+            // TODO - match on parts length and return tuples. Or split on last whitespace.
 
-            if let Some(cmd_completions) = self.get_command_completions(parts[0], line, partial_arg) {
+            let cmd = parts[0];
+            let partial_arg = if parts.len() == 2 { parts[1] } else { parts[2] };
+            let prev_word = if parts.len() == 2 { "" } else { parts[1] };
+
+            let arg_start = match prev_word.len() {
+                0 => cmd.len() + 1,                   // after "cmd "
+                _ => cmd.len() + prev_word.len() + 2, // after "cmd prev_word "
+            };
+
+            if let Some(cmd_completions) = self.get_command_completions(cmd, prev_word, partial_arg)
+            {
                 let mut cmd_completions: Vec<Pair> = cmd_completions
                     .iter()
                     .filter(|c| c.starts_with(partial_arg))
@@ -660,22 +672,4 @@ mod tests {
         let replacements: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
         assert!(!replacements.contains(&"run "));
     }
-
-    // #[test]
-    // fn complete_builtin_multiple_matches() {
-    //     let ac = AutoCompletion::with_paths(vec![]);
-    //     let h = DefaultHistory::new();
-    //     let (_, candidates) = ac.complete("e", 1, &ctx(&h)).unwrap();
-    //     let replacements: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
-    //     assert!(replacements.contains(&"echo "));
-    //     assert!(replacements.contains(&"exit "));
-    // }
-    //
-    // #[test]
-    // fn complete_no_match_returns_empty() {
-    //     let ac = AutoCompletion::with_paths(vec![]);
-    //     let h = DefaultHistory::new();
-    //     let (_, candidates) = ac.complete("zzz_no_such_cmd", 15, &ctx(&h)).unwrap();
-    //     assert!(candidates.is_empty());
-    // }
 }
