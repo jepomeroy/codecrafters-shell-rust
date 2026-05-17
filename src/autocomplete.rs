@@ -73,6 +73,8 @@ impl AutoCompletion {
         cmd: &str,
         prev_word: &str,
         partial_arg: &str,
+        line: &str,
+        pos: usize,
     ) -> Option<Vec<String>> {
         let key = if prev_word.is_empty() {
             cmd.to_string()
@@ -93,6 +95,8 @@ impl AutoCompletion {
             .arg(cmd)
             .arg(partial_arg)
             .arg(prev_word)
+            .env("COMP_LINE", line)
+            .env("COMP_POINT", pos.to_string())
             .output()
             .ok()?;
 
@@ -165,8 +169,6 @@ impl Completer for AutoCompletion {
         let parts: Vec<&str> = line.splitn(3, ' ').collect();
 
         if !parts.is_empty() && parts.len() >= 2 {
-            // TODO - match on parts length and return tuples. Or split on last whitespace.
-
             let cmd = parts[0];
             let partial_arg = if parts.len() == 2 { parts[1] } else { parts[2] };
             let prev_word = if parts.len() == 2 { "" } else { parts[1] };
@@ -176,7 +178,8 @@ impl Completer for AutoCompletion {
                 _ => cmd.len() + prev_word.len() + 2, // after "cmd prev_word "
             };
 
-            if let Some(cmd_completions) = self.get_command_completions(cmd, prev_word, partial_arg)
+            if let Some(cmd_completions) =
+                self.get_command_completions(cmd, prev_word, partial_arg, line, pos)
             {
                 let mut cmd_completions: Vec<Pair> = cmd_completions
                     .iter()
