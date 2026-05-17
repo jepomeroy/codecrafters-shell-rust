@@ -279,6 +279,10 @@ impl Commands {
                         0
                     }
                     "exit" => Builtin::exit(),
+                    "jobs" => {
+                        // don't do anything for now
+                        0
+                    }
                     "pwd" => self.bi.pwd(),
                     "type" => {
                         for arg in args.iter() {
