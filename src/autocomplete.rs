@@ -168,15 +168,20 @@ impl Completer for AutoCompletion {
         // and avoid mixing candidates that have different start assumptions.
         let parts: Vec<&str> = line.splitn(3, ' ').collect();
 
-        if !parts.is_empty() && parts.len() >= 2 {
+        if !parts.is_empty() {
             let cmd = parts[0];
-            let partial_arg = if parts.len() == 2 { parts[1] } else { parts[2] };
-            let prev_word = if parts.len() == 2 { "" } else { parts[1] };
+            let (partial_arg, prev_word) = match parts.len() {
+                1 => ("", ""),
+                2 => (parts[1], ""),
+                _ => (parts[2], parts[1]),
+            };
 
             let arg_start = match prev_word.len() {
                 0 => cmd.len() + 1,                   // after "cmd "
                 _ => cmd.len() + prev_word.len() + 2, // after "cmd prev_word "
             };
+
+            let prev_word = if prev_word.is_empty() { cmd } else { prev_word };
 
             if let Some(cmd_completions) =
                 self.get_command_completions(cmd, prev_word, partial_arg, line, pos)
@@ -646,6 +651,7 @@ mod tests {
 
     #[test]
     fn complete_command_completion() {
+        let _lock = script_lock();
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("docker_comp");
         fs::write(&bin, "#!/usr/bin/env python3\nprint(\"run\")").unwrap();
@@ -674,5 +680,183 @@ mod tests {
         let (_, candidates) = ac.complete("docker x", 8, &ctx(&h)).unwrap();
         let replacements: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
         assert!(!replacements.contains(&"run "));
+    }
+
+    // --- helpers for script-based completer tests ---
+
+    // Serialize all tests that write+exec script files. The Linux kernel
+    // raises ETXTBSY when execve() is called on a file whose inode has
+    // i_writecount > 0, which happens when a concurrently-forked child
+    // inherits the write-fd opened by write_script() and hasn't yet called
+    // exec() itself (O_CLOEXEC closes the fd only on exec, not on fork).
+    // Holding this mutex for the full test ensures no two script tests
+    // overlap, so the write-fd is always closed before any fork can inherit it.
+    fn script_lock() -> std::sync::MutexGuard<'static, ()> {
+        use std::sync::{Mutex, OnceLock};
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn write_script(path: &Path, content: &str) {
+        fs::write(path, content).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    fn register_completer(ac: &AutoCompletion, cmd: &str, script: &Path) {
+        ac.cmd_completions
+            .lock()
+            .unwrap()
+            .insert(cmd.to_string(), script.to_str().unwrap().to_owned());
+    }
+
+    // --- complete: argv arguments passed to completer script ---
+
+    #[test]
+    fn complete_command_passes_prev_word_as_argv3() {
+        let _lock = script_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("comp");
+        write_script(
+            &bin,
+            "#!/usr/bin/env python3\nimport sys\nprev = sys.argv[3] if len(sys.argv) > 3 else ''\nif prev == 'remote':\n    print('set-url')\n    print('set-head')\n",
+        );
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        register_completer(&ac, "git", &bin);
+        let h = DefaultHistory::new();
+
+        let line = "git remote set";
+        let (start, candidates) = ac.complete(line, line.len(), &ctx(&h)).unwrap();
+
+        assert_eq!(
+            start,
+            "git remote ".len(),
+            "arg_start should skip past 'git remote '"
+        );
+        let reps: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
+        assert!(
+            reps.contains(&"set-url "),
+            "expected 'set-url'; got {reps:?}"
+        );
+        assert!(
+            reps.contains(&"set-head "),
+            "expected 'set-head'; got {reps:?}"
+        );
+    }
+
+    #[test]
+    fn complete_command_no_prev_word_passes_empty_argv3() {
+        let _lock = script_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("comp");
+        write_script(
+            &bin,
+            "#!/usr/bin/env python3\nimport sys\nprev = sys.argv[3] if len(sys.argv) > 3 else 'MISSING'\nif prev == '':\n    print('add')\nelse:\n    print('wrong')\n",
+        );
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        register_completer(&ac, "git", &bin);
+        let h = DefaultHistory::new();
+
+        let line = "git ad";
+        let (start, candidates) = ac.complete(line, line.len(), &ctx(&h)).unwrap();
+
+        assert_eq!(start, "git ".len(), "arg_start should skip past 'git '");
+        let reps: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
+        assert!(
+            reps.contains(&"add "),
+            "argv[3] should be empty string when no prev word; got {reps:?}"
+        );
+    }
+
+    // --- complete: COMP_LINE and COMP_POINT environment variables ---
+
+    #[test]
+    fn complete_command_sets_comp_line_to_full_input() {
+        let _lock = script_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("comp");
+        write_script(
+            &bin,
+            "#!/usr/bin/env python3\nimport os, sys\ncomp_line = os.environ.get('COMP_LINE', 'MISSING')\nword = sys.argv[2] if len(sys.argv) > 2 else ''\nif comp_line == 'git ad':\n    print(word + '_line_ok')\nelse:\n    print(word + '_line_bad')\n",
+        );
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        register_completer(&ac, "git", &bin);
+        let h = DefaultHistory::new();
+
+        let line = "git ad";
+        let (_, candidates) = ac.complete(line, line.len(), &ctx(&h)).unwrap();
+
+        let reps: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
+        assert!(
+            reps.iter().any(|r| r.contains("line_ok")),
+            "COMP_LINE should be the full line '{line}'; got {reps:?}"
+        );
+    }
+
+    #[test]
+    fn complete_command_sets_comp_point_to_cursor_pos() {
+        let _lock = script_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("comp");
+        // Script encodes COMP_POINT in its output so we can assert what the env var was
+        write_script(
+            &bin,
+            "#!/usr/bin/env python3\nimport os, sys\ncomp_point = os.environ.get('COMP_POINT', '')\nword = sys.argv[2] if len(sys.argv) > 2 else ''\nprint(word + '_point_' + comp_point)\n",
+        );
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        register_completer(&ac, "git", &bin);
+        let h = DefaultHistory::new();
+
+        let line = "git ad"; // len=6
+        let pos = 5; // cursor one before the end; must differ from line.len()
+        let (_, candidates) = ac.complete(line, pos, &ctx(&h)).unwrap();
+
+        let reps: Vec<&str> = candidates.iter().map(|p| p.replacement.as_str()).collect();
+        assert!(
+            reps.iter().any(|r| r.contains("_point_5")),
+            "COMP_POINT should be cursor pos 5, not line len 6; got {reps:?}"
+        );
+    }
+
+    // --- complete: cache keyed by (cmd, prev_word) ---
+
+    #[test]
+    fn complete_command_cache_keyed_by_prev_word() {
+        let _lock = script_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("comp");
+        write_script(
+            &bin,
+            "#!/usr/bin/env python3\nimport sys\nprev = sys.argv[3] if len(sys.argv) > 3 else ''\nif prev == '':\n    print('add')\nelif prev == 'remote':\n    print('set-url')\n",
+        );
+
+        let ac = AutoCompletion::with_paths(vec![]);
+        register_completer(&ac, "git", &bin);
+        let h = DefaultHistory::new();
+
+        // First call: no prev_word — result cached under key "git"
+        let line1 = "git ad";
+        let (_, cands1) = ac.complete(line1, line1.len(), &ctx(&h)).unwrap();
+        let reps1: Vec<&str> = cands1.iter().map(|p| p.replacement.as_str()).collect();
+        assert!(reps1.contains(&"add "), "expected 'add'; got {reps1:?}");
+
+        // Second call: prev_word="remote" — must use a separate cache key "git remote",
+        // not reuse the "git" entry, so the script is invoked again with different argv[3].
+        let line2 = "git remote set";
+        let (_, cands2) = ac.complete(line2, line2.len(), &ctx(&h)).unwrap();
+        let reps2: Vec<&str> = cands2.iter().map(|p| p.replacement.as_str()).collect();
+        assert!(
+            reps2.contains(&"set-url "),
+            "expected 'set-url' from separate cache key; got {reps2:?}"
+        );
+        assert!(
+            !reps2.contains(&"add "),
+            "should not reuse the no-prev-word cache entry; got {reps2:?}"
+        );
     }
 }
