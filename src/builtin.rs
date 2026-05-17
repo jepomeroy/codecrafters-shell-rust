@@ -60,6 +60,15 @@ impl Builtin {
         let mut completions = self.completions.lock().unwrap();
 
         match args[0].as_str() {
+            "-C" => {
+                if args.len() != 3 {
+                    writeln!(out).ok();
+                    return 0;
+                }
+
+                completions.insert(args[2].to_owned(), args[1].to_owned());
+                return 0;
+            }
             "-p" => {
                 if args.len() != 2 {
                     writeln!(out).ok();
@@ -73,14 +82,12 @@ impl Builtin {
                     }
                 };
             }
-            "-C" => {
-                if args.len() != 3 {
+            "-r" => {
+                if args.len() != 2 {
                     writeln!(out).ok();
                     return 0;
                 }
-
-                completions.insert(args[2].to_owned(), args[1].to_owned());
-                return 0;
+                completions.remove(&args[1]);
             }
             _ => {
                 writeln!(out).ok();
@@ -292,6 +299,53 @@ mod tests {
         assert_eq!(
             String::from_utf8(out).unwrap(),
             "complete -C '/path/to/git/completer' git\n"
+        );
+    }
+
+    #[test]
+    fn test_completion_removes_a_completion() {
+        let bi = Builtin::new();
+        let mut out = vec![];
+        assert_eq!(
+            bi.complete(
+                &[
+                    "-C".to_string(),
+                    "/path/to/git/completer".to_string(),
+                    "git".to_string()
+                ],
+                &mut out
+            ),
+            0
+        );
+
+        assert_eq!(String::from_utf8(out).unwrap(), "");
+
+        let mut out = vec![];
+        assert_eq!(
+            bi.complete(&["-p".to_string(), "git".to_string()], &mut out),
+            0
+        );
+
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "complete -C '/path/to/git/completer' git\n"
+        );
+
+        let mut out = vec![];
+        assert_eq!(
+            bi.complete(&["-r".to_string(), "git".to_string()], &mut out),
+            0
+        );
+
+        let mut out = vec![];
+        assert_eq!(
+            bi.complete(&["-p".to_string(), "git".to_string()], &mut out),
+            0
+        );
+
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "complete: git: no completion specification\n"
         );
     }
 }
