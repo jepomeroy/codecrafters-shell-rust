@@ -4,6 +4,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::builtin::{Builtin, SharedCompletions};
+use crate::jobs::Jobs;
 use crate::redirect::{Redirect, RedirectType};
 use crate::utils::{get_paths, is_executable};
 
@@ -11,6 +12,7 @@ use crate::utils::{get_paths, is_executable};
 pub(crate) struct Commands {
     paths: Vec<String>,
     bi: Builtin,
+    jobs: Jobs,
 }
 
 enum ParserState {
@@ -30,9 +32,11 @@ enum ParserState {
 impl Commands {
     /// Creates a new `Commands` instance by reading the `PATH` environment variable.
     pub(crate) fn new() -> Self {
-        let paths = get_paths();
-        let bi = Builtin::new();
-        Self { paths, bi }
+        Self {
+            paths: get_paths(),
+            bi: Builtin::new(),
+            jobs: Jobs::new(),
+        }
     }
 
     pub(crate) fn shared_completions(&self) -> SharedCompletions {
@@ -48,6 +52,8 @@ impl Commands {
                 return -1;
             }
         };
+
+        let is_background = Jobs::is_background_job(&args);
 
         match redirect.redirect_type {
             RedirectType::None => match Command::new(cmd).args(args.iter()).output() {
@@ -258,7 +264,7 @@ impl Commands {
     /// Parses and dispatches a full command line, routing to builtins or external executables.
     pub(crate) fn process_command(&mut self, input: &str) {
         match Commands::parse_cmd(input) {
-            Ok((cmd, args)) => {
+            Ok((cmd, mut args)) => {
                 match cmd.as_str() {
                     "cd" => {
                         args.iter().for_each(|p| {
@@ -292,7 +298,18 @@ impl Commands {
                         0
                     }
                     _ => match self.is_executable_command(&cmd) {
-                        Some(_) => self.execute_command(&cmd, args),
+                        Some(_) => {
+                            let is_bg = Jobs::is_background_job(&args);
+
+                            if is_bg {
+                                args.remove(args.len() - 1);
+                                self.jobs.execute_background(&cmd, args)
+                            } else {
+                                self.execute_command(&cmd, args);
+                            }
+
+                            0
+                        }
                         None => self.bi.unknown(&cmd),
                     },
                 };
@@ -517,6 +534,7 @@ mod tests {
         let cmds = Commands {
             paths: vec![],
             bi: Builtin::new(),
+            jobs: Jobs::new(),
         };
         assert!(cmds.is_executable_command("ls").is_none());
     }
@@ -526,6 +544,7 @@ mod tests {
         let cmds = Commands {
             paths: vec!["/nonexistent/path/xyz_shell_test".to_string()],
             bi: Builtin::new(),
+            jobs: Jobs::new(),
         };
         assert!(cmds.is_executable_command("ls").is_none());
     }
@@ -543,7 +562,9 @@ mod tests {
         let cmds = Commands {
             paths: vec![tmpdir.to_string_lossy().into_owned()],
             bi: Builtin::new(),
+            jobs: Jobs::new(),
         };
+
         let result = cmds.is_executable_command("myfakeshellcmd");
         let _ = fs::remove_dir_all(&tmpdir);
 
@@ -564,6 +585,7 @@ mod tests {
         let cmds = Commands {
             paths: vec![tmpdir.to_string_lossy().into_owned()],
             bi: Builtin::new(),
+            jobs: Jobs::new(),
         };
         let result = cmds.is_executable_command("noexecfile");
         let _ = fs::remove_dir_all(&tmpdir);

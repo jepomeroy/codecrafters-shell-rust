@@ -5,6 +5,7 @@ use crate::{autocomplete::AutoCompletion, commands::Commands};
 mod autocomplete;
 mod builtin;
 mod commands;
+mod jobs;
 mod redirect;
 mod utils;
 
