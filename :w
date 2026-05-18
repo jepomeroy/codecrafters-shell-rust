@@ -3,9 +3,7 @@ use std::{
     process::{Child, Command},
 };
 
-#[derive(Clone, Copy, PartialEq, Eq)]
 enum Status {
-    Complete,
     Done,
     Running,
     Unknown,
@@ -14,13 +12,12 @@ enum Status {
 impl Display for Status {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let disp = match self {
-            Status::Complete => "Complete",
-            Status::Done => "Done",
             Status::Running => "Running",
+            Status::Done => "Done",
             Status::Unknown => "Unknown",
         };
 
-        write!(f, "  {:<8}", disp)
+        write!(f, "{:>width$}", disp, width = disp.len() + 2)
     }
 }
 
@@ -66,18 +63,12 @@ impl Job {
 
     fn check_status(&mut self) -> Status {
         match &self.process.try_wait() {
-            Ok(Some(status)) => {
-                if self.status == Status::Running {
-                    self.status = Status::Done;
-                } else {
-                    self.status = Status::Complete;
-                }
-            }
+            Ok(Some(status)) => self.status = Status::Done,
             Ok(None) => self.status = Status::Running,
             Err(_) => self.status = Status::Unknown,
         };
 
-        self.status
+        &self.status
     }
 }
 
@@ -90,7 +81,7 @@ impl Display for Job {
             self.job_pos,
             self.status,
             self.cmd,
-            width_cmd = self.status.to_string().len() + self.cmd.to_string().len() + 17,
+            width_cmd = self.cmd.to_string().len() + 17,
         )
     }
 }
@@ -111,6 +102,12 @@ impl Jobs {
                     j.job_pos = JobPosition::Prev;
                 } else {
                     j.job_pos = JobPosition::Untracked;
+                };
+
+                match j.check_status() {
+                    Status::Done => todo!(),
+                    Status::Running => todo!(),
+                    Status::Unknown => todo!(),
                 }
             }
 
@@ -132,14 +129,9 @@ impl Jobs {
         false
     }
 
-    pub(crate) fn print_jobs(&mut self) {
-        self.jobs.retain_mut(|j| match j.check_status() {
-            Status::Unknown => false,
-            Status::Complete => false,
-            _ => {
-                println!("{}", j);
-                true
-            }
-        });
+    pub(crate) fn print_jobs(&self) {
+        for j in &self.jobs {
+            println!("{}", j);
+        }
     }
 }
