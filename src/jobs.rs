@@ -85,11 +85,16 @@ impl Display for Job {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "[{}]{}{}{:>width_cmd$} &",
+            "[{}]{}{}{:>width_cmd$}{}",
             self.job_num,
             self.job_pos,
             self.status,
             self.cmd,
+            if self.status == Status::Running {
+                " &"
+            } else {
+                ""
+            },
             width_cmd = self.cmd.to_string().len() + 17,
         )
     }
