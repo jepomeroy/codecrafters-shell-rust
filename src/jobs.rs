@@ -162,13 +162,7 @@ impl Jobs {
 
     pub(crate) fn execute_background(&mut self, cmd: &str, args: Vec<String>) {
         if let Ok(child) = Command::new(cmd).args(args.iter()).spawn() {
-            for j in &mut self.jobs {
-                if j.job_pos == JobPosition::Current {
-                    j.job_pos = JobPosition::Prev;
-                } else {
-                    j.job_pos = JobPosition::Untracked;
-                }
-            }
+            self.check_jobs();
 
             let job_id = child.id();
             let job_num = self.get_next_job_num();
