@@ -90,7 +90,7 @@ impl Display for Job {
             self.job_pos,
             self.status,
             self.cmd,
-            width_cmd = self.status.to_string().len() + self.cmd.to_string().len() + 17,
+            width_cmd = self.cmd.to_string().len() + 17,
         )
     }
 }
