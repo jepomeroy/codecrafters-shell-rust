@@ -20,15 +20,25 @@ impl Display for Status {
             Status::Unknown => "Unknown",
         };
 
-        write!(f, "  {:<8}", disp)
+        write!(f, "  {:<7}", disp)
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum JobPosition {
     Current,
     Prev,
     Untracked,
+}
+
+impl JobPosition {
+    fn get_next(curr: &JobPosition) -> JobPosition {
+        match curr {
+            JobPosition::Current => JobPosition::Prev,
+            JobPosition::Prev => JobPosition::Untracked,
+            JobPosition::Untracked => JobPosition::Untracked,
+        }
+    }
 }
 
 impl Display for JobPosition {
@@ -66,12 +76,12 @@ impl Job {
 
     fn check_status(&mut self) -> Status {
         match &self.process.try_wait() {
-            Ok(Some(status)) => {
+            Ok(Some(_)) => {
                 if self.status == Status::Running {
                     self.status = Status::Done;
                 } else {
                     self.status = Status::Complete;
-                }
+                };
             }
             Ok(None) => self.status = Status::Running,
             Err(_) => self.status = Status::Unknown,
@@ -102,11 +112,28 @@ impl Display for Job {
 
 pub(crate) struct Jobs {
     jobs: Vec<Job>,
+    job_num: usize,
 }
 
 impl Jobs {
     pub(crate) fn new() -> Self {
-        Self { jobs: vec![] }
+        Self {
+            jobs: vec![],
+            job_num: 0,
+        }
+    }
+
+    fn adjust_job_order(&mut self) {
+        let mut curr = JobPosition::Current;
+
+        self.jobs.sort_by_key(|j| std::cmp::Reverse(j.job_num));
+
+        self.jobs.iter_mut().for_each(|j| {
+            j.job_pos = curr;
+            curr = JobPosition::get_next(&curr);
+        });
+
+        self.jobs.sort_by_key(|j| j.job_num);
     }
 
     pub(crate) fn execute_background(&mut self, cmd: &str, args: Vec<String>) {
@@ -120,9 +147,9 @@ impl Jobs {
             }
 
             let job_id = child.id();
-            let job_num = self.jobs.len() + 1;
+            self.job_num += 1;
+            self.jobs.push(Job::new(cmd, &args, self.job_num, child));
 
-            self.jobs.push(Job::new(cmd, &args, job_num, child));
             println!("[{}] {}", self.jobs.len(), job_id);
         } else {
             println!("ls command didn't start");
@@ -138,13 +165,29 @@ impl Jobs {
     }
 
     pub(crate) fn print_jobs(&mut self) {
-        self.jobs.retain_mut(|j| match j.check_status() {
-            Status::Unknown => false,
-            Status::Complete => false,
-            _ => {
-                println!("{}", j);
-                true
+        // Advance Done→Complete for jobs already shown last call
+        for j in &mut self.jobs {
+            if j.status == Status::Done {
+                j.check_status();
             }
-        });
+        }
+
+        // Remove jobs that are Complete or Unknown (no longer show-able)
+        self.jobs.retain(|j| j.status == Status::Running);
+
+        // Update status of remaining Running jobs
+        for j in &mut self.jobs {
+            j.check_status();
+        }
+
+        // Drop any that errored during the check
+        self.jobs.retain(|j| j.status != Status::Unknown);
+
+        // Recalculate markers before printing
+        self.adjust_job_order();
+
+        for j in &self.jobs {
+            println!("{}", j);
+        }
     }
 }

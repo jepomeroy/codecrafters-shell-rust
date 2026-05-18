@@ -53,8 +53,6 @@ impl Commands {
             }
         };
 
-        let is_background = Jobs::is_background_job(&args);
-
         match redirect.redirect_type {
             RedirectType::None => match Command::new(cmd).args(args.iter()).output() {
                 Ok(output) => {
