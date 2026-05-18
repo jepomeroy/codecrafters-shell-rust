@@ -297,9 +297,7 @@ impl Commands {
                     }
                     _ => match self.is_executable_command(&cmd) {
                         Some(_) => {
-                            let is_bg = Jobs::is_background_job(&args);
-
-                            if is_bg {
+                            if Jobs::is_background_job(&args) {
                                 args.remove(args.len() - 1);
                                 self.jobs.execute_background(&cmd, args)
                             } else {
@@ -312,8 +310,10 @@ impl Commands {
                     },
                 };
             }
-            Err(_) => println!(),
+            Err(_) => print!(""),
         }
+
+        self.jobs.check_done_jobs();
     }
 }
 

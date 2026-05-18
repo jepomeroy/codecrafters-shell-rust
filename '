@@ -135,19 +135,13 @@ impl Jobs {
         });
     }
 
-    pub(crate) fn check_done_jobs(&mut self) {
+    pub(crate) fn check_jobs(&mut self) {
         self.jobs.iter_mut().for_each(|j| {
             j.check_status();
 
             if j.status == Status::Done {
                 println!("{}", j)
             }
-        });
-    }
-
-    pub(crate) fn check_jobs(&mut self) {
-        self.jobs.iter_mut().for_each(|j| {
-            j.check_status();
         });
 
         // Remove jobs that are Complete or Unknown (no longer show-able)
