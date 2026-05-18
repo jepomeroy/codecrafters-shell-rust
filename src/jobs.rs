@@ -112,15 +112,11 @@ impl Display for Job {
 
 pub(crate) struct Jobs {
     jobs: Vec<Job>,
-    job_num: usize,
 }
 
 impl Jobs {
     pub(crate) fn new() -> Self {
-        Self {
-            jobs: vec![],
-            job_num: 0,
-        }
+        Self { jobs: vec![] }
     }
 
     fn adjust_job_order(&mut self) {
@@ -133,6 +129,8 @@ impl Jobs {
             j.job_pos = curr;
             curr = JobPosition::get_next(&curr);
         });
+
+        self.jobs.sort_unstable_by_key(|j| j.job_num);
     }
 
     pub(crate) fn check_done_jobs(&mut self) {
@@ -173,13 +171,28 @@ impl Jobs {
             }
 
             let job_id = child.id();
-            self.job_num += 1;
-            self.jobs.push(Job::new(cmd, &args, self.job_num, child));
+            let job_num = self.get_next_job_num();
+            self.jobs.push(Job::new(cmd, &args, job_num, child));
 
             println!("[{}] {}", self.jobs.len(), job_id);
         } else {
             println!("ls command didn't start");
         }
+    }
+
+    fn get_next_job_num(&self) -> usize {
+        let mut job_num: usize = 1;
+
+        for j in &self.jobs {
+            if j.job_num > job_num {
+                break;
+            }
+            if j.job_num == job_num {
+                job_num += 1;
+            }
+        }
+
+        job_num
     }
 
     pub(crate) fn is_background_job(args: &[String]) -> bool {
@@ -193,10 +206,97 @@ impl Jobs {
     pub(crate) fn print_jobs(&mut self) {
         self.check_jobs();
 
-        self.jobs.sort_unstable_by_key(|j| j.job_num);
-
         let _ = &self.jobs.iter().for_each(|j| {
             println!("{}", j);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command;
+
+    fn dummy_job(job_num: usize) -> Job {
+        let child = Command::new("sleep").arg("1000").spawn().unwrap();
+        Job::new("sleep", &["1000".to_string()], job_num, child)
+    }
+
+    fn jobs_with_nums(nums: &[usize]) -> Jobs {
+        let mut j = Jobs::new();
+        for &n in nums {
+            j.jobs.push(dummy_job(n));
+        }
+        j
+    }
+
+    fn kill_all(jobs: &mut Jobs) {
+        for j in &mut jobs.jobs {
+            let _ = j.process.kill();
+            let _ = j.process.wait();
+        }
+    }
+
+    // --- get_next_job_num ---
+
+    #[test]
+    fn test_empty_returns_one() {
+        assert_eq!(Jobs::new().get_next_job_num(), 1);
+    }
+
+    #[test]
+    fn test_sequential_returns_next() {
+        // [1, 2, 3] → 4
+        let mut jobs = jobs_with_nums(&[1, 2, 3]);
+        assert_eq!(jobs.get_next_job_num(), 4);
+        kill_all(&mut jobs);
+    }
+
+    #[test]
+    fn test_gap_at_end_fills_gap() {
+        // [1, 2, 4] → 3
+        let mut jobs = jobs_with_nums(&[1, 2, 4]);
+        assert_eq!(jobs.get_next_job_num(), 3);
+        kill_all(&mut jobs);
+    }
+
+    #[test]
+    fn test_gap_at_start_returns_one() {
+        // [2, 3, 4] → 1
+        let mut jobs = jobs_with_nums(&[2, 3, 4]);
+        assert_eq!(jobs.get_next_job_num(), 1);
+        kill_all(&mut jobs);
+    }
+
+    #[test]
+    fn test_single_job_one_returns_two() {
+        // [1] → 2
+        let mut jobs = jobs_with_nums(&[1]);
+        assert_eq!(jobs.get_next_job_num(), 2);
+        kill_all(&mut jobs);
+    }
+
+    #[test]
+    fn test_single_job_not_one_returns_one() {
+        // [2] → 1
+        let mut jobs = jobs_with_nums(&[2]);
+        assert_eq!(jobs.get_next_job_num(), 1);
+        kill_all(&mut jobs);
+    }
+
+    #[test]
+    fn test_gap_in_middle() {
+        // [1, 3] → 2
+        let mut jobs = jobs_with_nums(&[1, 3]);
+        assert_eq!(jobs.get_next_job_num(), 2);
+        kill_all(&mut jobs);
+    }
+
+    #[test]
+    fn test_large_gap_returns_first_hole() {
+        // [1, 2, 5, 6] → 3
+        let mut jobs = jobs_with_nums(&[1, 2, 5, 6]);
+        assert_eq!(jobs.get_next_job_num(), 3);
+        kill_all(&mut jobs);
     }
 }
