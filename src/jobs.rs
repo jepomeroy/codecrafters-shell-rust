@@ -14,8 +14,28 @@ impl Display for Status {
     }
 }
 
+#[derive(PartialEq, Eq)]
+enum JobPosition {
+    Current,
+    Prev,
+    Untracked,
+}
+
+impl Display for JobPosition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let pos = match self {
+            JobPosition::Current => "+",
+            JobPosition::Prev => "-",
+            _ => " ",
+        };
+
+        write!(f, "{}", pos)
+    }
+}
+
 struct Job {
     job_num: usize,
+    job_pos: JobPosition,
     proc_id: u32,
     cmd: String,
     status: Status,
@@ -27,6 +47,7 @@ impl Job {
 
         Self {
             job_num,
+            job_pos: JobPosition::Current,
             proc_id,
             cmd: command,
             status: Status::Running,
@@ -38,8 +59,8 @@ impl Display for Job {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "[{}]{:<2}{}{:>17} &",
-            self.job_num, "+", self.status, self.cmd
+            "[{}]{}{:<2}{:>17} &",
+            self.job_num, self.job_pos, self.status, self.cmd
         )
     }
 }
@@ -55,6 +76,14 @@ impl Jobs {
 
     pub(crate) fn execute_background(&mut self, cmd: &str, args: Vec<String>) {
         if let Ok(child) = Command::new(cmd).args(args.iter()).spawn() {
+            for j in &mut self.jobs {
+                if j.job_pos == JobPosition::Current {
+                    j.job_pos = JobPosition::Prev;
+                } else {
+                    j.job_pos = JobPosition::Untracked;
+                };
+            }
+
             let job_num = self.jobs.len() + 1;
             self.jobs.push(Job::new(cmd, &args, job_num, child.id()));
             println!("[{}] {}", self.jobs.len(), child.id());
@@ -77,4 +106,3 @@ impl Jobs {
         }
     }
 }
-
