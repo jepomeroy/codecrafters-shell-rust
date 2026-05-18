@@ -10,7 +10,7 @@ impl Display for Status {
             Status::Running => "Running",
         };
 
-        write!(f, "{}", disp)
+        write!(f, "{:>width$}", disp, width = disp.len() + 2)
     }
 }
 
@@ -59,8 +59,12 @@ impl Display for Job {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "[{}]{}{:<2}{:>17} &",
-            self.job_num, self.job_pos, self.status, self.cmd
+            "[{}]{}{}{:>width_cmd$} &",
+            self.job_num,
+            self.job_pos,
+            self.status,
+            self.cmd,
+            width_cmd = self.cmd.to_string().len() + 17,
         )
     }
 }
@@ -106,3 +110,4 @@ impl Jobs {
         }
     }
 }
+
