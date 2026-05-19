@@ -1,3 +1,5 @@
+//! Built-in shell commands (`cd`, `echo`, `exit`, `pwd`, `type`, `complete`, `jobs`).
+
 use std::collections::HashMap;
 use std::env;
 use std::io::Write;
@@ -5,21 +7,26 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 
+/// Thread-safe map from command name to the path of its completion program.
 pub(crate) type SharedCompletions = Arc<Mutex<HashMap<String, String>>>;
 
+/// Implements the shell's built-in commands.
 pub(crate) struct Builtin {
     completions: SharedCompletions,
 }
 
 impl Builtin {
+    /// Creates a `Builtin` with an empty completions map.
     pub(crate) fn new() -> Self {
         Self::with_completions(Arc::new(Mutex::new(HashMap::new())))
     }
 
+    /// Creates a `Builtin` sharing the given completions map.
     pub(crate) fn with_completions(completions: SharedCompletions) -> Self {
         Self { completions }
     }
 
+    /// Returns a clone of the shared completions handle.
     pub(crate) fn completions(&self) -> SharedCompletions {
         Arc::clone(&self.completions)
     }
@@ -49,8 +56,13 @@ impl Builtin {
         }
     }
 
-    /// Prints a completion error message for `args[1]` if `args` has the correct format; otherwise,
-    /// prints a blank line. Always returns `0`.
+    /// Implements the `complete` builtin. Supported flags:
+    ///
+    /// - `-C <program> <cmd>` — registers `program` as the completion helper for `cmd`.
+    /// - `-p <cmd>` — prints the completion spec for `cmd`, or an error if none is registered.
+    /// - `-r <cmd>` — removes the completion spec for `cmd`.
+    ///
+    /// Prints a blank line and returns `0` for any unrecognised flag or wrong argument count.
     pub(crate) fn complete<W: Write>(&self, args: &[String], out: &mut W) -> i32 {
         if args.is_empty() {
             writeln!(out).ok();

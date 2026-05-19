@@ -1,17 +1,22 @@
+//! Entry point for the interactive shell.
+//!
+//! Initialises the rustyline editor with tab-completion and runs the REPL loop.
+
 use rustyline::{CompletionType, Config, config::BellStyle, history::DefaultHistory};
 
-use crate::{autocomplete::AutoCompletion, commands::Commands};
+use crate::{autocomplete::AutoCompletion, processor::Processor};
 
 mod autocomplete;
 mod builtin;
-mod commands;
+mod command;
 mod jobs;
+mod processor;
 mod redirect;
 mod utils;
 
 /// Starts the interactive shell REPL: reads a line, dispatches it, and loops forever.
 fn main() -> Result<(), anyhow::Error> {
-    let mut commands = Commands::new();
+    let mut commands = Processor::new();
 
     let config = Config::builder()
         .bell_style(BellStyle::Audible)

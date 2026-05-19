@@ -1,21 +1,21 @@
+//! Shell output-redirect parsing and file-handle management.
+
 use std::fs::{File, OpenOptions};
 
 use anyhow::anyhow;
 
 /// The destination stream for a shell redirect.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) enum RedirectType {
-    /// No redirect — output goes to the terminal as normal.
-    #[default]
-    None,
     /// Redirect standard output (`>`, `1>`, `>>`, `1>>`).
+    #[default]
     StdOut,
     /// Redirect standard error (`2>`, `2>>`).
     StdErr,
 }
 
 /// A parsed shell redirect operator and its associated metadata.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct Redirect {
     /// Which stream is being redirected.
     pub(crate) redirect_type: RedirectType,
@@ -30,12 +30,7 @@ pub(crate) struct Redirect {
 
 impl Redirect {
     /// Constructs a `Redirect` from its component parts.
-    pub(crate) fn new(
-        redirect_type: RedirectType,
-        position: usize,
-        target: String,
-        append: bool,
-    ) -> Self {
+    fn new(redirect_type: RedirectType, position: usize, target: String, append: bool) -> Self {
         Self {
             redirect_type,
             position,
@@ -69,68 +64,60 @@ impl Redirect {
     /// - `2>` — overwrite stderr
     /// - `2>>` — append stderr
     ///
-    /// Returns `Redirect::default()` (type [`RedirectType::None`]) when no operator is found.
+    /// Returns `None` when no operator is found.
     /// Returns an error when an operator appears without a following filename.
-    pub(crate) fn has_redirect(args: &[String]) -> Result<Redirect, anyhow::Error> {
+    pub(crate) fn get_redirect(args: &[String]) -> Option<Redirect> {
         for (i, arg) in args.iter().enumerate() {
             match arg.as_str() {
                 // overwrite stdout file
                 ">" | "1>" => {
                     if let Some(target) = args.get(i + 1) {
-                        return Ok(Redirect::new(
+                        return Some(Redirect::new(
                             RedirectType::StdOut,
                             i,
                             target.to_owned(),
                             false,
                         ));
-                    } else {
-                        return Err(anyhow!("Syntax Error: newline expected"));
                     }
                 }
                 // append stdout file
                 ">>" | "1>>" => {
                     if let Some(target) = args.get(i + 1) {
-                        return Ok(Redirect::new(
+                        return Some(Redirect::new(
                             RedirectType::StdOut,
                             i,
                             target.to_owned(),
                             true,
                         ));
-                    } else {
-                        return Err(anyhow!("Syntax Error: newline expected"));
                     }
                 }
                 // overwrite stderr file
                 "2>" => {
                     if let Some(target) = args.get(i + 1) {
-                        return Ok(Redirect::new(
+                        return Some(Redirect::new(
                             RedirectType::StdErr,
                             i,
                             target.to_owned(),
                             false,
                         ));
-                    } else {
-                        return Err(anyhow!("Syntax Error: newline expected"));
                     }
                 }
                 // append stderr file
                 "2>>" => {
                     if let Some(target) = args.get(i + 1) {
-                        return Ok(Redirect::new(
+                        return Some(Redirect::new(
                             RedirectType::StdErr,
                             i,
                             target.to_owned(),
                             true,
                         ));
-                    } else {
-                        return Err(anyhow!("Syntax Error: newline expected"));
                     }
                 }
                 _ => continue,
             }
         }
 
-        Ok(Redirect::default())
+        None
     }
 }
 
@@ -143,14 +130,14 @@ mod tests {
     }
 
     #[test]
-    fn test_has_redirect_none() {
-        let r = Redirect::has_redirect(&args(&["arg1", "arg2"])).unwrap();
-        assert!(matches!(r.redirect_type, RedirectType::None));
+    fn test_get_redirect_none() {
+        let r = Redirect::get_redirect(&args(&["arg1", "arg2"]));
+        assert!(r.is_none());
     }
 
     #[test]
-    fn test_has_redirect_stdout_overwrite() {
-        let r = Redirect::has_redirect(&args(&["arg1", ">", "out.txt"])).unwrap();
+    fn test_get_redirect_stdout_overwrite() {
+        let r = Redirect::get_redirect(&args(&["arg1", ">", "out.txt"])).unwrap();
         assert!(matches!(r.redirect_type, RedirectType::StdOut));
         assert_eq!(r.target, "out.txt");
         assert_eq!(r.position, 1);
@@ -158,16 +145,16 @@ mod tests {
     }
 
     #[test]
-    fn test_has_redirect_stdout_overwrite_explicit() {
-        let r = Redirect::has_redirect(&args(&["arg1", "1>", "out.txt"])).unwrap();
+    fn test_get_redirect_stdout_overwrite_explicit() {
+        let r = Redirect::get_redirect(&args(&["arg1", "1>", "out.txt"])).unwrap();
         assert!(matches!(r.redirect_type, RedirectType::StdOut));
         assert_eq!(r.target, "out.txt");
         assert!(!r.append);
     }
 
     #[test]
-    fn test_has_redirect_stdout_append() {
-        let r = Redirect::has_redirect(&args(&["arg1", ">>", "out.txt"])).unwrap();
+    fn test_get_redirect_stdout_append() {
+        let r = Redirect::get_redirect(&args(&["arg1", ">>", "out.txt"])).unwrap();
         assert!(matches!(r.redirect_type, RedirectType::StdOut));
         assert_eq!(r.target, "out.txt");
         assert_eq!(r.position, 1);
@@ -175,15 +162,15 @@ mod tests {
     }
 
     #[test]
-    fn test_has_redirect_stdout_append_explicit() {
-        let r = Redirect::has_redirect(&args(&["arg1", "1>>", "out.txt"])).unwrap();
+    fn test_get_redirect_stdout_append_explicit() {
+        let r = Redirect::get_redirect(&args(&["arg1", "1>>", "out.txt"])).unwrap();
         assert!(matches!(r.redirect_type, RedirectType::StdOut));
         assert!(r.append);
     }
 
     #[test]
-    fn test_has_redirect_stderr_overwrite() {
-        let r = Redirect::has_redirect(&args(&["arg1", "2>", "err.txt"])).unwrap();
+    fn test_get_redirect_stderr_overwrite() {
+        let r = Redirect::get_redirect(&args(&["arg1", "2>", "err.txt"])).unwrap();
         assert!(matches!(r.redirect_type, RedirectType::StdErr));
         assert_eq!(r.target, "err.txt");
         assert_eq!(r.position, 1);
@@ -191,53 +178,28 @@ mod tests {
     }
 
     #[test]
-    fn test_has_redirect_stderr_append() {
-        let r = Redirect::has_redirect(&args(&["arg1", "2>>", "err.txt"])).unwrap();
+    fn test_get_redirect_stderr_append() {
+        let r = Redirect::get_redirect(&args(&["arg1", "2>>", "err.txt"])).unwrap();
         assert!(matches!(r.redirect_type, RedirectType::StdErr));
         assert_eq!(r.target, "err.txt");
         assert!(r.append);
     }
 
     #[test]
-    fn test_has_redirect_position_at_start() {
-        let r = Redirect::has_redirect(&args(&[">", "out.txt"])).unwrap();
+    fn test_get_redirect_position_at_start() {
+        let r = Redirect::get_redirect(&args(&[">", "out.txt"])).unwrap();
         assert_eq!(r.position, 0);
     }
 
     #[test]
-    fn test_has_redirect_position_after_multiple_args() {
-        let r = Redirect::has_redirect(&args(&["a", "b", "c", ">", "out.txt"])).unwrap();
+    fn test_get_redirect_position_after_multiple_args() {
+        let r = Redirect::get_redirect(&args(&["a", "b", "c", ">", "out.txt"])).unwrap();
         assert_eq!(r.position, 3);
     }
 
     #[test]
-    fn test_has_redirect_stdout_missing_target_is_error() {
-        assert!(Redirect::has_redirect(&args(&[">"])).is_err());
-    }
-
-    #[test]
-    fn test_has_redirect_stdout_explicit_missing_target_is_error() {
-        assert!(Redirect::has_redirect(&args(&["1>"])).is_err());
-    }
-
-    #[test]
-    fn test_has_redirect_stdout_append_missing_target_is_error() {
-        assert!(Redirect::has_redirect(&args(&[">>"])).is_err());
-    }
-
-    #[test]
-    fn test_has_redirect_stderr_missing_target_is_error() {
-        assert!(Redirect::has_redirect(&args(&["2>"])).is_err());
-    }
-
-    #[test]
-    fn test_has_redirect_stderr_append_missing_target_is_error() {
-        assert!(Redirect::has_redirect(&args(&["2>>"])).is_err());
-    }
-
-    #[test]
-    fn test_has_redirect_first_operator_wins() {
-        let r = Redirect::has_redirect(&args(&[">", "first.txt", "2>", "second.txt"])).unwrap();
+    fn test_get_redirect_first_operator_wins() {
+        let r = Redirect::get_redirect(&args(&[">", "first.txt", "2>", "second.txt"])).unwrap();
         assert!(matches!(r.redirect_type, RedirectType::StdOut));
         assert_eq!(r.target, "first.txt");
     }

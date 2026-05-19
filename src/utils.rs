@@ -1,3 +1,5 @@
+//! Shared filesystem and environment utilities.
+
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -28,6 +30,23 @@ pub(crate) fn is_executable(path: &Path) -> bool {
             .map(|f| f.permissions().mode() & 0o111 != 0)
             .unwrap_or(false)
     }
+}
+
+/// Serializes all tests that write and then exec a script file, or that spawn child
+/// processes (fork), to prevent the ETXTBSY race.
+///
+/// ETXTBSY occurs when `execve(script)` is called while another thread's recently-forked
+/// child still holds an inherited write-fd for `script` (the fd is open between `fork` and
+/// the child's `exec`, even though it is `O_CLOEXEC`).  Holding this lock for the full
+/// write-then-exec window, and for each `Command::spawn` call, ensures the windows never
+/// overlap.
+#[cfg(test)]
+pub(crate) fn fork_lock() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 #[cfg(test)]

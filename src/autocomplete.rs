@@ -1,3 +1,5 @@
+//! Tab-completion integration with rustyline: builtins, PATH executables, files, and custom helpers.
+
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -68,6 +70,11 @@ impl AutoCompletion {
             .collect()
     }
 
+    /// Calls the registered completion program for `cmd` and returns its output lines.
+    ///
+    /// Passes `cmd`, `partial_arg`, and `prev_word` as argv and sets `COMP_LINE`/`COMP_POINT`.
+    /// Results are cached by `(cmd, prev_word)` key. Returns `None` when no helper is registered
+    /// or the helper produces no output.
     fn get_command_completions(
         &self,
         cmd: &str,
@@ -654,7 +661,7 @@ mod tests {
         let _lock = script_lock();
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("docker_comp");
-        fs::write(&bin, "#!/usr/bin/env python3\nprint(\"run\")").unwrap();
+        fs::write(&bin, "#!/bin/sh\necho run\n").unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
 
         let ac = AutoCompletion::with_paths(vec![]);
@@ -684,19 +691,10 @@ mod tests {
 
     // --- helpers for script-based completer tests ---
 
-    // Serialize all tests that write+exec script files. The Linux kernel
-    // raises ETXTBSY when execve() is called on a file whose inode has
-    // i_writecount > 0, which happens when a concurrently-forked child
-    // inherits the write-fd opened by write_script() and hasn't yet called
-    // exec() itself (O_CLOEXEC closes the fd only on exec, not on fork).
-    // Holding this mutex for the full test ensures no two script tests
-    // overlap, so the write-fd is always closed before any fork can inherit it.
+    /// Delegates to the cross-module `fork_lock` so script tests are mutually exclusive with
+    /// any `Command::spawn` calls in other test modules (e.g. `jobs::tests`).
     fn script_lock() -> std::sync::MutexGuard<'static, ()> {
-        use std::sync::{Mutex, OnceLock};
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(Default::default)
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        crate::utils::fork_lock()
     }
 
     fn write_script(path: &Path, content: &str) {
@@ -720,7 +718,7 @@ mod tests {
         let bin = dir.path().join("comp");
         write_script(
             &bin,
-            "#!/usr/bin/env python3\nimport sys\nprev = sys.argv[3] if len(sys.argv) > 3 else ''\nif prev == 'remote':\n    print('set-url')\n    print('set-head')\n",
+            "#!/bin/sh\nprev=\"${3:-}\"\nif [ \"$prev\" = \"remote\" ]; then\n    echo set-url\n    echo set-head\nfi\n",
         );
 
         let ac = AutoCompletion::with_paths(vec![]);
@@ -753,7 +751,7 @@ mod tests {
         let bin = dir.path().join("comp");
         write_script(
             &bin,
-            "#!/usr/bin/env python3\nimport sys\nprev = sys.argv[3] if len(sys.argv) > 3 else 'MISSING'\nif prev == 'git':\n    print('add')\nelse:\n    print('wrong')\n",
+            "#!/bin/sh\nprev=\"${3:-MISSING}\"\nif [ \"$prev\" = \"git\" ]; then\n    echo add\nelse\n    echo wrong\nfi\n",
         );
 
         let ac = AutoCompletion::with_paths(vec![]);
