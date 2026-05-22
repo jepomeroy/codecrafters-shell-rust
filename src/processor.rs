@@ -1,5 +1,8 @@
 //! Command dispatch: parses a raw input line and routes it to builtins or PATH executables.
 
+use std::env::args;
+use std::path::Path;
+
 use rustyline::history::{DefaultHistory, History};
 
 use crate::builtin::{Builtin, SharedCompletions};
@@ -27,7 +30,7 @@ impl Processor {
     }
 
     /// Parses and dispatches a full command line, routing to builtins or external executables.
-    pub(crate) fn process_command(&mut self, input: &str, history: &DefaultHistory) {
+    pub(crate) fn process_command(&mut self, input: &str, history: &mut DefaultHistory) {
         let input = input.trim();
         if input.is_empty() {
             return;
@@ -51,17 +54,34 @@ impl Processor {
                 return;
             }
             "history" => {
-                let args = input.strip_prefix(first_token).unwrap_or("").trim();
+                let args: Vec<&str> = input.trim().split_whitespace().skip(1).collect();
 
-                let history_count = if args.is_empty() {
-                    0
+                if args.is_empty() {
+                    for i in 0..history.len() {
+                        println!("  {} {}", i + 1, history[i]);
+                    }
                 } else {
-                    let count = args.parse::<usize>().unwrap_or(0);
-                    history.len() - count
-                };
+                    match args[0] {
+                        "-r" => {
+                            if args.len() == 2 {
+                                history.load(Path::new(args[1]));
+                            }
 
-                for i in history_count..history.len() {
-                    println!("  {} {}", i + 1, history[i]);
+                            return;
+                        }
+                        _ => {
+                            let hist_count = if args.is_empty() {
+                                0
+                            } else {
+                                let count = args[0].parse::<usize>().unwrap_or(0);
+                                history.len() - count
+                            };
+
+                            for i in hist_count..history.len() {
+                                println!("  {} {}", i + 1, history[i]);
+                            }
+                        }
+                    }
                 }
                 return;
             }
@@ -113,26 +133,26 @@ mod tests {
 
     #[test]
     fn test_process_empty_input_no_panic() {
-        let hist = DefaultHistory::new();
+        let mut hist = DefaultHistory::new();
         let mut p = Processor::new();
-        p.process_command("", &hist);
-        p.process_command("   ", &hist);
+        p.process_command("", &mut hist);
+        p.process_command("   ", &mut hist);
     }
 
     #[test]
     fn test_process_cd_valid_path() {
-        let hist = DefaultHistory::new();
+        let mut hist = DefaultHistory::new();
         let mut p = Processor::new();
         let orig = env::current_dir().unwrap();
-        p.process_command("cd /tmp", &hist);
+        p.process_command("cd /tmp", &mut hist);
         let _ = env::set_current_dir(&orig);
     }
 
     #[test]
     fn test_process_cd_invalid_path_no_panic() {
-        let hist = DefaultHistory::new();
+        let mut hist = DefaultHistory::new();
         let mut p = Processor::new();
-        p.process_command("cd /this/path/does/not/exist/xyz_shell_test", &hist);
+        p.process_command("cd /this/path/does/not/exist/xyz_shell_test", &mut hist);
     }
 
     // --- Processor::new ---

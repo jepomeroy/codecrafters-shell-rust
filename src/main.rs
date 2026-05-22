@@ -32,7 +32,7 @@ fn main() -> Result<(), anyhow::Error> {
         match readline {
             Ok(line) => {
                 let _ = rl.add_history_entry(line.clone().trim());
-                commands.process_command(line.trim(), rl.history());
+                commands.process_command(line.trim(), rl.history_mut());
             }
             Err(e) => println!("Error: {e}"),
         }
