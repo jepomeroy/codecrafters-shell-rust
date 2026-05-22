@@ -10,6 +10,7 @@ pub(crate) struct Processor {
     paths: Vec<String>,
     bi: Builtin,
     jobs: Jobs,
+    last_exit_code: i32,
 }
 
 impl Processor {
@@ -19,6 +20,7 @@ impl Processor {
             paths: get_paths(),
             bi: Builtin::new(),
             jobs: Jobs::new(),
+            last_exit_code: 0,
         }
     }
 
@@ -51,7 +53,10 @@ impl Processor {
 
         let segments = build_pipeline(input, &self.paths, self.bi.completions());
         match execute_pipeline(segments) {
-            PipelineResult::Foreground(_) => self.jobs.check_done_jobs(),
+            PipelineResult::Foreground(code) => {
+                self.jobs.check_done_jobs();
+                self.last_exit_code = code;
+            }
             PipelineResult::Background(child) => {
                 let cmd = input
                     .trim_end()

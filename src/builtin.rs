@@ -216,7 +216,9 @@ impl Builtin {
 
     /// Returns the list of names recognised as shell builtins.
     pub(crate) fn builtin_cmds() -> Vec<&'static str> {
-        vec!["cd", "complete", "echo", "exit", "jobs", "pwd", "type"]
+        vec![
+            "cd", "complete", "echo", "exit", "history", "jobs", "pwd", "type",
+        ]
     }
 
     /// Changes the current working directory to `args`.
@@ -300,7 +302,9 @@ mod tests {
     fn test_list_commands() {
         assert_eq!(
             Builtin::builtin_cmds(),
-            vec!["cd", "complete", "echo", "exit", "jobs", "pwd", "type"]
+            vec![
+                "cd", "complete", "echo", "exit", "history", "jobs", "pwd", "type"
+            ]
         );
     }
 
