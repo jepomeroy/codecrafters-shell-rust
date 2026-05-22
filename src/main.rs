@@ -30,7 +30,10 @@ fn main() -> Result<(), anyhow::Error> {
     loop {
         let readline = rl.readline("$ ");
         match readline {
-            Ok(line) => commands.process_command(line.trim()),
+            Ok(line) => {
+                let _ = rl.add_history_entry(line.clone().trim());
+                commands.process_command(line.trim(), rl.history());
+            }
             Err(e) => println!("Error: {e}"),
         }
     }

@@ -1,5 +1,7 @@
 //! Command dispatch: parses a raw input line and routes it to builtins or PATH executables.
 
+use rustyline::history::DefaultHistory;
+
 use crate::builtin::{Builtin, SharedCompletions};
 use crate::command::{PipelineResult, build_pipeline, execute_pipeline};
 use crate::jobs::Jobs;
@@ -25,7 +27,7 @@ impl Processor {
     }
 
     /// Parses and dispatches a full command line, routing to builtins or external executables.
-    pub(crate) fn process_command(&mut self, input: &str) {
+    pub(crate) fn process_command(&mut self, input: &str, history: &DefaultHistory) {
         let input = input.trim();
         if input.is_empty() {
             return;
@@ -46,6 +48,12 @@ impl Processor {
             }
             "jobs" => {
                 self.jobs.print_jobs();
+                return;
+            }
+            "history" => {
+                for (i, h) in history.iter().enumerate() {
+                    println!("  {} {}", i + 1, h);
+                }
                 return;
             }
             _ => {}
@@ -96,23 +104,26 @@ mod tests {
 
     #[test]
     fn test_process_empty_input_no_panic() {
+        let hist = DefaultHistory::new();
         let mut p = Processor::new();
-        p.process_command("");
-        p.process_command("   ");
+        p.process_command("", &hist);
+        p.process_command("   ", &hist);
     }
 
     #[test]
     fn test_process_cd_valid_path() {
+        let hist = DefaultHistory::new();
         let mut p = Processor::new();
         let orig = env::current_dir().unwrap();
-        p.process_command("cd /tmp");
+        p.process_command("cd /tmp", &hist);
         let _ = env::set_current_dir(&orig);
     }
 
     #[test]
     fn test_process_cd_invalid_path_no_panic() {
+        let hist = DefaultHistory::new();
         let mut p = Processor::new();
-        p.process_command("cd /this/path/does/not/exist/xyz_shell_test");
+        p.process_command("cd /this/path/does/not/exist/xyz_shell_test", &hist);
     }
 
     // --- Processor::new ---
