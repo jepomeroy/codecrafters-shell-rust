@@ -1,6 +1,6 @@
 //! Command dispatch: parses a raw input line and routes it to builtins or PATH executables.
 
-use rustyline::history::DefaultHistory;
+use rustyline::history::{DefaultHistory, History};
 
 use crate::builtin::{Builtin, SharedCompletions};
 use crate::command::{PipelineResult, build_pipeline, execute_pipeline};
@@ -51,8 +51,10 @@ impl Processor {
                 return;
             }
             "history" => {
-                for (i, h) in history.iter().enumerate() {
-                    println!("  {} {}", i + 1, h);
+                let args = input.strip_prefix(first_token).unwrap_or("").trim();
+                let history_count = args.parse::<usize>().unwrap_or(0);
+                for i in history_count..history.len() {
+                    println!("  {} {}", i + 1, history[i]);
                 }
                 return;
             }
