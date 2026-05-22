@@ -53,7 +53,7 @@ impl Processor {
             "history" => {
                 let args = input.strip_prefix(first_token).unwrap_or("").trim();
                 let history_count = args.parse::<usize>().unwrap_or(0);
-                for i in history_count..history.len() {
+                for i in history.len() - history_count..history.len() {
                     println!("  {} {}", i + 1, history[i]);
                 }
                 return;
