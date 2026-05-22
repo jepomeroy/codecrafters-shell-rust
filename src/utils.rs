@@ -32,6 +32,19 @@ pub(crate) fn is_executable(path: &Path) -> bool {
     }
 }
 
+/// Searches `PATH` for an executable named `cmd`. Returns its full path if found.
+pub(crate) fn find_in_paths(cmd: &str, paths: &[String]) -> Option<String> {
+    for path in paths {
+        let cmd_path = Path::new(&path).join(cmd);
+
+        if cmd_path.exists() && is_executable(&cmd_path) {
+            return Some(cmd_path.to_string_lossy().into_owned());
+        }
+    }
+
+    None
+}
+
 /// Serializes all tests that write and then exec a script file, or that spawn child
 /// processes (fork), to prevent the ETXTBSY race.
 ///
@@ -74,7 +87,9 @@ mod tests {
 
     #[test]
     fn is_executable_false_for_nonexistent_path() {
-        assert!(!is_executable(Path::new("/nonexistent/path/xyz_shell_test")));
+        assert!(!is_executable(Path::new(
+            "/nonexistent/path/xyz_shell_test"
+        )));
     }
 
     #[test]

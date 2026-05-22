@@ -19,9 +19,6 @@ pub(crate) enum RedirectType {
 pub(crate) struct Redirect {
     /// Which stream is being redirected.
     pub(crate) redirect_type: RedirectType,
-    /// Index of the redirect operator token in the argument list.
-    /// All args before this index are passed to the command.
-    pub(crate) position: usize,
     /// Path of the file to write or append to.
     target: String,
     /// `true` for append mode (`>>` / `2>>`), `false` for overwrite (`>` / `2>`).
@@ -30,10 +27,9 @@ pub(crate) struct Redirect {
 
 impl Redirect {
     /// Constructs a `Redirect` from its component parts.
-    fn new(redirect_type: RedirectType, position: usize, target: String, append: bool) -> Self {
+    fn new(redirect_type: RedirectType, target: String, append: bool) -> Self {
         Self {
             redirect_type,
-            position,
             target,
             append,
         }
@@ -74,7 +70,6 @@ impl Redirect {
                     if let Some(target) = args.get(i + 1) {
                         return Some(Redirect::new(
                             RedirectType::StdOut,
-                            i,
                             target.to_owned(),
                             false,
                         ));
@@ -83,12 +78,7 @@ impl Redirect {
                 // append stdout file
                 ">>" | "1>>" => {
                     if let Some(target) = args.get(i + 1) {
-                        return Some(Redirect::new(
-                            RedirectType::StdOut,
-                            i,
-                            target.to_owned(),
-                            true,
-                        ));
+                        return Some(Redirect::new(RedirectType::StdOut, target.to_owned(), true));
                     }
                 }
                 // overwrite stderr file
@@ -96,7 +86,6 @@ impl Redirect {
                     if let Some(target) = args.get(i + 1) {
                         return Some(Redirect::new(
                             RedirectType::StdErr,
-                            i,
                             target.to_owned(),
                             false,
                         ));
@@ -105,12 +94,7 @@ impl Redirect {
                 // append stderr file
                 "2>>" => {
                     if let Some(target) = args.get(i + 1) {
-                        return Some(Redirect::new(
-                            RedirectType::StdErr,
-                            i,
-                            target.to_owned(),
-                            true,
-                        ));
+                        return Some(Redirect::new(RedirectType::StdErr, target.to_owned(), true));
                     }
                 }
                 _ => continue,
@@ -118,6 +102,23 @@ impl Redirect {
         }
 
         None
+    }
+
+    pub(crate) fn strip_redirect_tokens(args: &[String]) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut i = 0;
+
+        while i < args.len() {
+            match args[i].as_str() {
+                ">" | "1>" | ">>" | "1>>" | "2>" | "2>>" => i += 2, // skip the operator and filename
+                _ => {
+                    out.push(args[i].clone());
+                    i += 1;
+                }
+            }
+        }
+
+        out
     }
 }
 
@@ -140,7 +141,6 @@ mod tests {
         let r = Redirect::get_redirect(&args(&["arg1", ">", "out.txt"])).unwrap();
         assert!(matches!(r.redirect_type, RedirectType::StdOut));
         assert_eq!(r.target, "out.txt");
-        assert_eq!(r.position, 1);
         assert!(!r.append);
     }
 
@@ -157,7 +157,6 @@ mod tests {
         let r = Redirect::get_redirect(&args(&["arg1", ">>", "out.txt"])).unwrap();
         assert!(matches!(r.redirect_type, RedirectType::StdOut));
         assert_eq!(r.target, "out.txt");
-        assert_eq!(r.position, 1);
         assert!(r.append);
     }
 
@@ -173,7 +172,6 @@ mod tests {
         let r = Redirect::get_redirect(&args(&["arg1", "2>", "err.txt"])).unwrap();
         assert!(matches!(r.redirect_type, RedirectType::StdErr));
         assert_eq!(r.target, "err.txt");
-        assert_eq!(r.position, 1);
         assert!(!r.append);
     }
 
@@ -183,18 +181,6 @@ mod tests {
         assert!(matches!(r.redirect_type, RedirectType::StdErr));
         assert_eq!(r.target, "err.txt");
         assert!(r.append);
-    }
-
-    #[test]
-    fn test_get_redirect_position_at_start() {
-        let r = Redirect::get_redirect(&args(&[">", "out.txt"])).unwrap();
-        assert_eq!(r.position, 0);
-    }
-
-    #[test]
-    fn test_get_redirect_position_after_multiple_args() {
-        let r = Redirect::get_redirect(&args(&["a", "b", "c", ">", "out.txt"])).unwrap();
-        assert_eq!(r.position, 3);
     }
 
     #[test]

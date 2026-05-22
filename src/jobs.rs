@@ -115,7 +115,7 @@ impl Display for Job {
             } else {
                 ""
             },
-            width_cmd = self.cmd.to_string().len() + 17,
+            width_cmd = self.cmd.to_string().len() + 14,
         )
     }
 }
@@ -301,5 +301,57 @@ mod tests {
         let mut jobs = jobs_with_nums(&[1, 2, 5, 6]);
         assert_eq!(jobs.get_next_job_num(), 3);
         kill_all(&mut jobs);
+    }
+
+    // --- Job Display ---
+
+    #[test]
+    fn test_running_job_display_includes_ampersand() {
+        let mut j = dummy_job(1);
+        j.status = Status::Running;
+        let s = format!("{}", j);
+        assert!(s.ends_with(" &"), "running job should end with ' &', got: {:?}", s);
+        let _ = j.process.kill();
+        let _ = j.process.wait();
+    }
+
+    #[test]
+    fn test_done_job_display_no_ampersand() {
+        let mut j = dummy_job(1);
+        j.status = Status::Done;
+        let s = format!("{}", j);
+        assert!(!s.ends_with(" &"), "done job should not end with ' &', got: {:?}", s);
+        let _ = j.process.kill();
+        let _ = j.process.wait();
+    }
+
+    #[test]
+    fn test_done_job_display_format() {
+        // Expected format: "[1]+  Done                 sleep 1000"
+        let mut j = dummy_job(1);
+        j.job_pos = JobPosition::Current;
+        j.status = Status::Done;
+        let s = format!("{}", j);
+        assert!(s.starts_with("[1]+"), "got: {:?}", s);
+        assert!(s.contains("Done"), "got: {:?}", s);
+        assert!(s.contains("sleep 1000"), "got: {:?}", s);
+        assert!(!s.contains(" &"), "done job must not contain ' &', got: {:?}", s);
+        let _ = j.process.kill();
+        let _ = j.process.wait();
+    }
+
+    #[test]
+    fn test_running_job_display_format() {
+        // Expected format: "[1]+  Running               sleep 1000 &"
+        let mut j = dummy_job(1);
+        j.job_pos = JobPosition::Current;
+        j.status = Status::Running;
+        let s = format!("{}", j);
+        assert!(s.starts_with("[1]+"), "got: {:?}", s);
+        assert!(s.contains("Running"), "got: {:?}", s);
+        assert!(s.contains("sleep 1000"), "got: {:?}", s);
+        assert!(s.ends_with(" &"), "running job must end with ' &', got: {:?}", s);
+        let _ = j.process.kill();
+        let _ = j.process.wait();
     }
 }
