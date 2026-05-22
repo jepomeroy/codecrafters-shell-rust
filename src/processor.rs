@@ -52,8 +52,15 @@ impl Processor {
             }
             "history" => {
                 let args = input.strip_prefix(first_token).unwrap_or("").trim();
-                let history_count = args.parse::<usize>().unwrap_or(0);
-                for i in history.len() - history_count..history.len() {
+
+                let history_count = if args.is_empty() {
+                    0
+                } else {
+                    let count = args.parse::<usize>().unwrap_or(0);
+                    history.len() - count
+                };
+
+                for i in history_count..history.len() {
                     println!("  {} {}", i + 1, history[i]);
                 }
                 return;
