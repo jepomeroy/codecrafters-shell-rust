@@ -1,5 +1,7 @@
 //! Command dispatch: parses a raw input line and routes it to builtins or PATH executables.
 
+use std::collections::HashMap;
+
 use rustyline::history::{DefaultHistory, FileHistory, History};
 
 use crate::builtin::{Builtin, SharedCompletions};
@@ -14,6 +16,7 @@ pub(crate) struct Processor {
     bi: Builtin,
     jobs: Jobs,
     history_helper: Helper,
+    declare_vars: HashMap<String, String>,
     last_exit_code: i32,
 }
 
@@ -25,6 +28,7 @@ impl Processor {
             bi: Builtin::new(),
             jobs: Jobs::new(),
             history_helper: Helper::new(),
+            declare_vars: HashMap::new(),
             last_exit_code: 0,
         }
     }
@@ -64,6 +68,20 @@ impl Processor {
                 let args = input.strip_prefix(first_token).unwrap_or("").trim();
                 Builtin::cd(args);
                 return;
+            }
+            "declare" => {
+                let args: Vec<&str> = input.split_whitespace().skip(1).collect();
+                match args[0] {
+                    "-p" => {
+                        if args.len() == 2 {
+                            match self.declare_vars.get(args[1]) {
+                                Some(val) => println!("{}", val),
+                                None => println!("declare: {}: not found", args[1]),
+                            }
+                        }
+                    }
+                    _ => println!("WTF!"),
+                }
             }
             "exit" => {
                 self.save_history(history);
@@ -114,7 +132,7 @@ impl Processor {
                                 0
                             } else {
                                 let count = args[0].parse::<usize>().unwrap_or(0);
-                                history.len() - count
+                                history.len().saturating_sub(count)
                             };
 
                             for i in hist_count..history.len() {
@@ -155,7 +173,9 @@ impl Processor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
+    use rustyline::history::History;
+    use std::{env, fs};
+    use tempfile::NamedTempFile;
 
     /// Serializes all tests that read or write the process-wide PATH variable.
     ///
@@ -169,6 +189,14 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner())
     }
 
+    fn make_hist(entries: &[&str]) -> DefaultHistory {
+        let mut h = DefaultHistory::new();
+        for e in entries {
+            let _ = h.add(e);
+        }
+        h
+    }
+
     // --- Processor::process_command ---
 
     #[test]
@@ -178,6 +206,8 @@ mod tests {
         p.process_command("", &mut hist);
         p.process_command("   ", &mut hist);
     }
+
+    // --- cd ---
 
     #[test]
     fn test_process_cd_valid_path() {
@@ -195,7 +225,149 @@ mod tests {
         p.process_command("cd /this/path/does/not/exist/xyz_shell_test", &mut hist);
     }
 
+    #[test]
+    fn test_cd_changes_directory() {
+        let mut hist = DefaultHistory::new();
+        let mut p = Processor::new();
+        let orig = env::current_dir().unwrap();
+        p.process_command("cd /tmp", &mut hist);
+        let cwd = env::current_dir().unwrap();
+        let _ = env::set_current_dir(&orig);
+        assert_eq!(cwd.to_str().unwrap(), "/tmp");
+    }
+
+    // --- declare ---
+
+    #[test]
+    fn test_declare_p_missing_var_no_panic() {
+        let mut hist = DefaultHistory::new();
+        let mut p = Processor::new();
+        // Variable was never set; should print "not found" without panicking.
+        p.process_command("declare -p NONEXISTENT_VAR_XYZ", &mut hist);
+    }
+
+    // --- jobs ---
+
+    #[test]
+    fn test_jobs_empty_no_panic() {
+        let mut hist = DefaultHistory::new();
+        let mut p = Processor::new();
+        p.process_command("jobs", &mut hist);
+    }
+
+    // --- history (no args) ---
+
+    #[test]
+    fn test_history_no_args_no_panic() {
+        let mut hist = make_hist(&["echo hello", "ls -la"]);
+        let mut p = Processor::new();
+        p.process_command("history", &mut hist);
+    }
+
+    #[test]
+    fn test_history_empty_no_panic() {
+        let mut hist = DefaultHistory::new();
+        let mut p = Processor::new();
+        p.process_command("history", &mut hist);
+    }
+
+    // --- history N (count) ---
+
+    #[test]
+    fn test_history_count_no_panic() {
+        let mut hist = make_hist(&["a", "b", "c", "d", "e"]);
+        let mut p = Processor::new();
+        p.process_command("history 2", &mut hist);
+    }
+
+    #[test]
+    fn test_history_count_larger_than_history_no_panic() {
+        let mut hist = make_hist(&["only"]);
+        let mut p = Processor::new();
+        p.process_command("history 100", &mut hist);
+    }
+
+    // --- history -r ---
+
+    #[test]
+    fn test_history_r_loads_entries_from_file() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_owned();
+        fs::write(&path, "cmd_one\ncmd_two\n").unwrap();
+
+        let mut hist = DefaultHistory::new();
+        let mut p = Processor::new();
+        p.process_command(&format!("history -r {}", path), &mut hist);
+
+        assert_eq!(hist.len(), 2);
+        assert_eq!(format!("{}", hist[0]), "cmd_one");
+        assert_eq!(format!("{}", hist[1]), "cmd_two");
+    }
+
+    #[test]
+    fn test_history_r_nonexistent_file_no_panic() {
+        let mut hist = DefaultHistory::new();
+        let mut p = Processor::new();
+        p.process_command("history -r /tmp/no_such_file_xyz_shell_test", &mut hist);
+        assert_eq!(hist.len(), 0);
+    }
+
+    // --- history -a ---
+
+    #[test]
+    fn test_history_a_appends_to_file() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_owned();
+
+        let mut hist = make_hist(&["first", "second"]);
+        let mut p = Processor::new();
+        p.process_command(&format!("history -a {}", path), &mut hist);
+
+        let contents = fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("first"));
+        assert!(contents.contains("second"));
+    }
+
+    #[test]
+    fn test_history_a_only_appends_new_entries() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_owned();
+
+        let mut hist = make_hist(&["alpha", "beta"]);
+        let mut p = Processor::new();
+
+        // First append writes both entries.
+        p.process_command(&format!("history -a {}", path), &mut hist);
+
+        // Add a third entry and append again.
+        let _ = hist.add("gamma");
+        p.process_command(&format!("history -a {}", path), &mut hist);
+
+        let contents = fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = contents.lines().collect();
+        // "gamma" should appear exactly once.
+        assert_eq!(lines.iter().filter(|&&l| l == "gamma").count(), 1);
+    }
+
+    // --- history -w ---
+
+    #[test]
+    fn test_history_w_writes_all_entries() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_owned();
+
+        let mut hist = make_hist(&["one", "two", "three"]);
+        let mut p = Processor::new();
+        p.process_command(&format!("history -w {}", path), &mut hist);
+
+        let contents = fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("one"));
+        assert!(contents.contains("two"));
+        assert!(contents.contains("three"));
+    }
+
     // --- Processor::new ---
+
     #[test]
     fn test_new_reads_path_entries() {
         let _lock = env_lock();
