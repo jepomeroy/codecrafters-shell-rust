@@ -17,7 +17,7 @@ mod utils;
 
 /// Starts the interactive shell REPL: reads a line, dispatches it, and loops forever.
 fn main() -> Result<(), anyhow::Error> {
-    let mut commands = Processor::new();
+    let mut processor = Processor::new();
 
     let config = Config::builder()
         .bell_style(BellStyle::Audible)
@@ -26,14 +26,16 @@ fn main() -> Result<(), anyhow::Error> {
 
     let mut rl = rustyline::Editor::<AutoCompletion, DefaultHistory>::with_config(config)?;
 
-    rl.set_helper(Some(AutoCompletion::new(commands.shared_completions())));
+    rl.set_helper(Some(AutoCompletion::new(processor.shared_completions())));
+
+    processor.load_history(rl.history_mut());
 
     loop {
         let readline = rl.readline("$ ");
         match readline {
             Ok(line) => {
                 let _ = rl.add_history_entry(line.clone().trim());
-                commands.process_command(line.trim(), rl.history_mut());
+                processor.process_command(line.trim(), rl.history_mut());
             }
             Err(e) => println!("Error: {e}"),
         }

@@ -1,6 +1,6 @@
 //! Command dispatch: parses a raw input line and routes it to builtins or PATH executables.
 
-use rustyline::history::{DefaultHistory, History};
+use rustyline::history::{DefaultHistory, FileHistory, History};
 
 use crate::builtin::{Builtin, SharedCompletions};
 use crate::command::{PipelineResult, build_pipeline, execute_pipeline};
@@ -29,6 +29,28 @@ impl Processor {
         }
     }
 
+    // pub(crate) fn last_exit_code(&self) -> i32 {
+    //     self.last_exit_code
+    // }
+
+    pub(crate) fn load_history(&mut self, history: &mut FileHistory) {
+        match &self.history_helper.read_history_file() {
+            Ok(hist) => {
+                for h in hist.iter() {
+                    let _ = history.add(h);
+                }
+            }
+
+            Err(e) => eprintln!("{e}"),
+        }
+    }
+
+    pub(crate) fn save_history(&mut self, history: &mut FileHistory) {
+        if let Some(err) = &self.history_helper.write_history_file(history) {
+            eprintln!("Error writing history file: {err}");
+        }
+    }
+
     /// Parses and dispatches a full command line, routing to builtins or external executables.
     pub(crate) fn process_command(&mut self, input: &str, history: &mut DefaultHistory) {
         let input = input.trim();
@@ -46,6 +68,7 @@ impl Processor {
                 return;
             }
             "exit" => {
+                self.save_history(history);
                 let _ = Builtin::exit();
                 return;
             }

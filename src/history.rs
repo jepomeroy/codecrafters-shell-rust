@@ -6,11 +6,16 @@ use rustyline::history::{FileHistory, History};
 
 pub(crate) struct Helper {
     append_pos: usize,
+    history_file: Option<String>,
 }
 
 impl Helper {
     pub(crate) fn new() -> Self {
-        Self { append_pos: 0 }
+        let history_file = std::env::var("HISTFILE").ok();
+        Self {
+            append_pos: 0,
+            history_file,
+        }
     }
 
     pub(crate) fn append_file(&mut self, path: &str, history: &mut FileHistory) {
@@ -44,6 +49,14 @@ impl Helper {
         Ok(hist)
     }
 
+    pub(crate) fn read_history_file(&mut self) -> Result<Vec<String>, anyhow::Error> {
+        let path = self
+            .history_file
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("HISTFILE environment variable not set"))?;
+        self.read_file(&path)
+    }
+
     pub(crate) fn write_file(&mut self, path: &str, history: &mut FileHistory) {
         self.append_pos = history.len();
 
@@ -56,6 +69,21 @@ impl Helper {
                 let _ = writeln!(file, "{}", h);
             }
         }
+    }
+
+    pub(crate) fn write_history_file(
+        &mut self,
+        history: &mut FileHistory,
+    ) -> Option<anyhow::Error> {
+        if let Ok(path) = self
+            .history_file
+            .clone()
+            .ok_or_else(|| Some(anyhow::anyhow!("HISTFILE environment variable not set")))
+        {
+            self.write_file(&path, history);
+        }
+
+        None
     }
 }
 
