@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::{fs::OpenOptions, path::Path};
 
@@ -35,7 +34,12 @@ impl Helper {
     pub(crate) fn read_file(&mut self, path: &str) -> Result<Vec<String>, anyhow::Error> {
         let mut hist = Vec::new();
 
-        let file = File::open(path)?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(Path::new(path))?;
+
         let reader = BufReader::new(file);
 
         for line in reader.lines() {
