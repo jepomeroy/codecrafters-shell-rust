@@ -36,8 +36,7 @@ impl Helper {
 
         let file = OpenOptions::new()
             .read(true)
-            .write(true)
-            .create(true)
+            .append(true)
             .open(Path::new(path))?;
 
         let reader = BufReader::new(file);
@@ -75,8 +74,13 @@ impl Helper {
     }
 
     pub(crate) fn write_history_file(&mut self, history: &mut FileHistory) {
-        if let Some(path) = self.history_file.clone() {
-            self.write_file(&path, history);
+        let hist_file = self.history_file.clone().unwrap_or_default();
+        let path = Path::new(&hist_file);
+
+        if path.exists() {
+            self.append_file(path.to_str().unwrap_or_default(), history);
+        } else {
+            self.write_file(path.to_str().unwrap_or_default(), history);
         }
     }
 }
