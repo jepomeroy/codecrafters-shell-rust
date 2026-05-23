@@ -176,12 +176,23 @@ impl Processor {
         }
     }
 
-    fn handle_declare_set(&mut self, arg: &str) -> Option<String> {
-        if arg.as_bytes()[0].is_ascii_digit() {
-            return Some(format!("declare: `{}': not a valid identifier", arg).to_string());
-        }
+    fn handle_declare_err_format(&self, arg: &str) -> Option<String> {
+        Some(format!("declare: `{}': not a valid identifier", arg).to_string())
+    }
 
+    fn handle_declare_set(&mut self, arg: &str) -> Option<String> {
         if let Some((key, val)) = arg.split_once("=") {
+            for (i, ch) in key.chars().enumerate() {
+                match ch {
+                    '0'..'9' => {
+                        if i == 0 {
+                            return self.handle_declare_err_format(arg);
+                        }
+                    }
+                    'a'..'z' | 'A'..'Z' | '_' => continue,
+                    _ => return self.handle_declare_err_format(arg),
+                }
+            }
             let _ = &self.declare_vars.insert(key.to_owned(), val.to_owned());
         }
 
@@ -293,6 +304,22 @@ mod tests {
             p.handle_declare_set("67=x").unwrap(),
             "declare: `67=x': not a valid identifier"
         );
+    }
+
+    #[test]
+    fn test_declare_hyphen_key_not_allowed() {
+        let mut p = Processor::new();
+        assert_eq!(
+            p.handle_declare_set("my-key=x").unwrap(),
+            "declare: `my-key=x': not a valid identifier"
+        );
+    }
+
+    #[test]
+    fn test_declare_underscore_key_is_allowed() {
+        let mut p = Processor::new();
+        assert!(p.handle_declare_set("my_key=x").is_none(),);
+        assert!(p.handle_declare_set("_my_key=x").is_none(),);
     }
 
     // --- jobs ---
