@@ -82,6 +82,8 @@ impl Processor {
                     }
                     _ => println!("WTF!"),
                 }
+
+                return;
             }
             "exit" => {
                 self.save_history(history);
