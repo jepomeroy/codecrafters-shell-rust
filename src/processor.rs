@@ -1,5 +1,7 @@
 //! Command dispatch: parses a raw input line and routes it to builtins or PATH executables.
 
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::path::Path;
 
 use rustyline::history::{DefaultHistory, History};
@@ -70,7 +72,15 @@ impl Processor {
                         }
                         "-w" => {
                             if args.len() == 2 {
-                                let _ = history.save(Path::new(args[1]));
+                                if let Ok(mut file) = OpenOptions::new()
+                                    .append(true)
+                                    .create(true)
+                                    .open(Path::new(args[1]))
+                                {
+                                    for h in history.iter() {
+                                        let _ = writeln!(file, "{}", h);
+                                    }
+                                }
                             }
 
                             return;
