@@ -74,13 +74,16 @@ impl Processor {
                 match args[0] {
                     "-p" => {
                         if args.len() == 2 {
-                            match self.declare_vars.get(args[1]) {
-                                Some(val) => println!("{}", val),
-                                None => println!("declare: {}: not found", args[1]),
+                            println!("{}", self.handle_declare_p(args[1]));
+                        }
+                    }
+                    _ => {
+                        if args.len() == 1 {
+                            if let Some((key, val)) = args[0].split_once("=") {
+                                let _ = &self.declare_vars.insert(key.to_owned(), val.to_owned());
                             }
                         }
                     }
-                    _ => println!("WTF!"),
                 }
 
                 return;
@@ -166,6 +169,13 @@ impl Processor {
         }
     }
 
+    fn handle_declare_p(&self, key: &str) -> String {
+        match self.declare_vars.get(key) {
+            Some(val) => format!(r#"declare -- {}="{}""#, key, val.clone()),
+            None => format!("declare: {}: not found", key),
+        }
+    }
+
     /// Returns the shared completions handle so the tab-completion helper can read it.
     pub(crate) fn shared_completions(&self) -> SharedCompletions {
         self.bi.completions()
@@ -244,8 +254,24 @@ mod tests {
     fn test_declare_p_missing_var_no_panic() {
         let mut hist = DefaultHistory::new();
         let mut p = Processor::new();
-        // Variable was never set; should print "not found" without panicking.
         p.process_command("declare -p NONEXISTENT_VAR_XYZ", &mut hist);
+    }
+
+    #[test]
+    fn test_declare_p_not_found_message() {
+        let p = Processor::new();
+        assert_eq!(
+            p.handle_declare_p("missing_variable"),
+            "declare: missing_variable: not found"
+        );
+    }
+
+    #[test]
+    fn test_declare_p_found_returns_value() {
+        let mut p = Processor::new();
+        p.declare_vars
+            .insert("MY_KEY".to_string(), "hello".to_string());
+        assert_eq!(p.handle_declare_p("MY_KEY"), r#"declare -- MY_KEY="hello""#);
     }
 
     // --- jobs ---
