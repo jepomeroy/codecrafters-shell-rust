@@ -89,7 +89,7 @@ impl Helper {
 mod tests {
     use super::*;
     use rustyline::history::History;
-    use std::fs;
+    use std::{env, fs};
     use tempfile::NamedTempFile;
 
     fn make_history(entries: &[&str]) -> FileHistory {
@@ -206,6 +206,7 @@ mod tests {
     #[test]
     fn read_file_missing_returns_error() {
         let mut helper = Helper::new();
-        assert!(helper.read_file("/tmp/no_such_history_file_xyz").is_err());
+        unsafe { env::set_var("HISTFILE", "/tmp/no_such_history_file_xyz") };
+        assert!(helper.read_file("/tmp/my_history_file_xyz").is_err());
     }
 }

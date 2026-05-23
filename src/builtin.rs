@@ -217,7 +217,7 @@ impl Builtin {
     /// Returns the list of names recognised as shell builtins.
     pub(crate) fn builtin_cmds() -> Vec<&'static str> {
         vec![
-            "cd", "complete", "echo", "exit", "history", "jobs", "pwd", "type",
+            "cd", "complete", "declare", "echo", "exit", "history", "jobs", "pwd", "type",
         ]
     }
 
@@ -303,7 +303,7 @@ mod tests {
         assert_eq!(
             Builtin::builtin_cmds(),
             vec![
-                "cd", "complete", "echo", "exit", "history", "jobs", "pwd", "type"
+                "cd", "complete", "declare", "echo", "exit", "history", "jobs", "pwd", "type"
             ]
         );
     }
