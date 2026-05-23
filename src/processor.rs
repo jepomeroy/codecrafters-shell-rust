@@ -1,6 +1,5 @@
 //! Command dispatch: parses a raw input line and routes it to builtins or PATH executables.
 
-use std::env::args;
 use std::path::Path;
 
 use rustyline::history::{DefaultHistory, History};
@@ -54,7 +53,7 @@ impl Processor {
                 return;
             }
             "history" => {
-                let args: Vec<&str> = input.trim().split_whitespace().skip(1).collect();
+                let args: Vec<&str> = input.split_whitespace().skip(1).collect();
 
                 if args.is_empty() {
                     for i in 0..history.len() {
@@ -64,7 +63,14 @@ impl Processor {
                     match args[0] {
                         "-r" => {
                             if args.len() == 2 {
-                                history.load(Path::new(args[1]));
+                                let _ = history.load(Path::new(args[1]));
+                            }
+
+                            return;
+                        }
+                        "-w" => {
+                            if args.len() == 2 {
+                                let _ = history.save(Path::new(args[1]));
                             }
 
                             return;
