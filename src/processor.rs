@@ -79,8 +79,8 @@ impl Processor {
                     }
                     _ => {
                         if args.len() == 1 {
-                            if let Some((key, val)) = args[0].split_once("=") {
-                                let _ = &self.declare_vars.insert(key.to_owned(), val.to_owned());
+                            if let Some(msg) = self.handle_declare_set(args[0]) {
+                                eprintln!("{}", msg);
                             }
                         }
                     }
@@ -174,6 +174,18 @@ impl Processor {
             Some(val) => format!(r#"declare -- {}="{}""#, key, val.clone()),
             None => format!("declare: {}: not found", key),
         }
+    }
+
+    fn handle_declare_set(&mut self, arg: &str) -> Option<String> {
+        if arg.as_bytes()[0].is_ascii_digit() {
+            return Some(format!("declare: `{}': not a valid identifier", arg).to_string());
+        }
+
+        if let Some((key, val)) = arg.split_once("=") {
+            let _ = &self.declare_vars.insert(key.to_owned(), val.to_owned());
+        }
+
+        None
     }
 
     /// Returns the shared completions handle so the tab-completion helper can read it.
@@ -272,6 +284,15 @@ mod tests {
         p.declare_vars
             .insert("MY_KEY".to_string(), "hello".to_string());
         assert_eq!(p.handle_declare_p("MY_KEY"), r#"declare -- MY_KEY="hello""#);
+    }
+
+    #[test]
+    fn test_declare_number_key_not_allowed() {
+        let mut p = Processor::new();
+        assert_eq!(
+            p.handle_declare_set("67=x").unwrap(),
+            "declare: `67=x': not a valid identifier"
+        );
     }
 
     // --- jobs ---
