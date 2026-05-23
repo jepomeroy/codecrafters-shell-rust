@@ -1,7 +1,3 @@
 echo grape blueberry banana
 echo apple pineapple orange
 
-echo foo
-echo bar
-echo baz
-history -a test.out

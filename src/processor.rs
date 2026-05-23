@@ -1,13 +1,10 @@
 //! Command dispatch: parses a raw input line and routes it to builtins or PATH executables.
 
-use std::fs::{File, OpenOptions};
-use std::io::Write;
-use std::path::Path;
-
 use rustyline::history::{DefaultHistory, History};
 
 use crate::builtin::{Builtin, SharedCompletions};
 use crate::command::{PipelineResult, build_pipeline, execute_pipeline};
+use crate::history::Helper;
 use crate::jobs::Jobs;
 use crate::utils::get_paths;
 
@@ -16,6 +13,7 @@ pub(crate) struct Processor {
     paths: Vec<String>,
     bi: Builtin,
     jobs: Jobs,
+    history_helper: Helper,
     last_exit_code: i32,
 }
 
@@ -26,6 +24,7 @@ impl Processor {
             paths: get_paths(),
             bi: Builtin::new(),
             jobs: Jobs::new(),
+            history_helper: Helper::new(),
             last_exit_code: 0,
         }
     }
@@ -65,24 +64,28 @@ impl Processor {
                     match args[0] {
                         "-r" => {
                             if args.len() == 2 {
-                                let _ = history.load(Path::new(args[1]));
+                                match self.history_helper.read_file(args[1]) {
+                                    Ok(hist) => {
+                                        for h in hist {
+                                            let _ = history.add(h.as_str());
+                                        }
+                                    }
+                                    Err(e) => eprintln!("Error reading history file: {}", e),
+                                }
                             }
 
                             return;
                         }
-                        "-w" | "-1" => {
+                        "-a" => {
                             if args.len() == 2 {
-                                if let Ok(mut file) = OpenOptions::new()
-                                    .append(true)
-                                    .create(true)
-                                    .open(Path::new(args[1]))
-                                {
-                                    for h in history.iter() {
-                                        let _ = writeln!(file, "{}", h);
-                                    }
-                                }
+                                self.history_helper.append_file(args[1], history);
                             }
-
+                            return;
+                        }
+                        "-w" => {
+                            if args.len() == 2 {
+                                self.history_helper.write_file(args[1], history);
+                            }
                             return;
                         }
                         _ => {

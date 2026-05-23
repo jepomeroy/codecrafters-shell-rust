@@ -9,6 +9,7 @@ use crate::{autocomplete::AutoCompletion, processor::Processor};
 mod autocomplete;
 mod builtin;
 mod command;
+mod history;
 mod jobs;
 mod processor;
 mod redirect;
