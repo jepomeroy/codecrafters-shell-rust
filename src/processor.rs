@@ -70,7 +70,7 @@ impl Processor {
 
                             return;
                         }
-                        "-w" => {
+                        "-w" | "-1" => {
                             if args.len() == 2 {
                                 if let Ok(mut file) = OpenOptions::new()
                                     .append(true)
