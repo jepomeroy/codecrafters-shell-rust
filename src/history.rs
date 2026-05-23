@@ -50,10 +50,9 @@ impl Helper {
     }
 
     pub(crate) fn read_history_file(&mut self) -> Result<Vec<String>, anyhow::Error> {
-        let path = self
-            .history_file
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("HISTFILE environment variable not set"))?;
+        let Some(path) = self.history_file.clone() else {
+            return Ok(Vec::new());
+        };
         self.read_file(&path)
     }
 
@@ -71,19 +70,10 @@ impl Helper {
         }
     }
 
-    pub(crate) fn write_history_file(
-        &mut self,
-        history: &mut FileHistory,
-    ) -> Option<anyhow::Error> {
-        if let Ok(path) = self
-            .history_file
-            .clone()
-            .ok_or_else(|| Some(anyhow::anyhow!("HISTFILE environment variable not set")))
-        {
+    pub(crate) fn write_history_file(&mut self, history: &mut FileHistory) {
+        if let Some(path) = self.history_file.clone() {
             self.write_file(&path, history);
         }
-
-        None
     }
 }
 

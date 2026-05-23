@@ -46,9 +46,7 @@ impl Processor {
     }
 
     pub(crate) fn save_history(&mut self, history: &mut FileHistory) {
-        if let Some(err) = &self.history_helper.write_history_file(history) {
-            eprintln!("Error writing history file: {err}");
-        }
+        let _ = &self.history_helper.write_history_file(history);
     }
 
     /// Parses and dispatches a full command line, routing to builtins or external executables.
