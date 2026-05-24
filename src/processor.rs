@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use regex::Regex;
 use rustyline::history::{DefaultHistory, FileHistory, History};
 
 use crate::builtin::{Builtin, SharedCompletions};
@@ -37,24 +38,18 @@ impl Processor {
     //     self.last_exit_code
     // }
 
-    fn expand(&self, input: &str) -> String {
-        input
-            .split_whitespace()
-            .map(|word| {
-                if word.starts_with("$") {
-                    let key = word.strip_prefix('$').unwrap_or("");
+    fn expand(&self, input: String) -> String {
+        let re = Regex::new(r"\$([a-zA-Z0-9_]+)").unwrap();
 
-                    if self.declare_vars.contains_key(key) {
-                        self.declare_vars.get(key).unwrap().to_string()
-                    } else {
-                        word.to_string()
-                    }
-                } else {
-                    word.to_string()
-                }
-            })
-            .collect::<Vec<String>>()
-            .join(" ")
+        let result = re.replace_all(&input, |caps: &regex::Captures| {
+            let key = &caps[1]; // Get the captured group (without the '$')
+            self.declare_vars
+                .get(key)
+                .unwrap_or(&caps[0].to_string())
+                .to_owned() // Fallback to the original placeholder if not found
+        });
+
+        result.to_string()
     }
 
     pub(crate) fn load_history(&mut self, history: &mut FileHistory) {
@@ -75,7 +70,7 @@ impl Processor {
 
     /// Parses and dispatches a full command line, routing to builtins or external executables.
     pub(crate) fn process_command(&mut self, input: &str, history: &mut DefaultHistory) {
-        let input = self.expand(input.trim());
+        let input = self.expand(input.trim().to_string());
         if input.is_empty() {
             return;
         }
