@@ -45,8 +45,8 @@ impl Processor {
             let key = &caps[1]; // Get the captured group (without the '$')
             self.declare_vars
                 .get(key)
-                .unwrap_or(&caps[0].to_string())
-                .to_owned() // Fallback to the original placeholder if not found
+                .unwrap_or(&"".to_string()) // empty vars (missing) expand to ""
+                .to_owned()
         });
 
         result.to_string()
