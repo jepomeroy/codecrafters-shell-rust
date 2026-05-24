@@ -39,7 +39,7 @@ impl Processor {
     // }
 
     fn expand(&self, input: String) -> String {
-        let re = Regex::new(r"\$([a-zA-Z0-9_]+)").unwrap();
+        let re = Regex::new(r"\$\{?([a-zA-Z0-9_]+)\}?").unwrap();
 
         let result = re.replace_all(&input, |caps: &regex::Captures| {
             let key = &caps[1]; // Get the captured group (without the '$')
