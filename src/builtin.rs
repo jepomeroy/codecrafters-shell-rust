@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_strip_os_error_no_suffix_unchanged() {
-        let e = std::io::Error::new(std::io::ErrorKind::Other, "something went wrong");
+        let e = std::io::Error::other("something went wrong");
         assert_eq!(strip_os_error_suffix(&e), "something went wrong");
     }
 
