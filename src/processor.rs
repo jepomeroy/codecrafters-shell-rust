@@ -37,6 +37,26 @@ impl Processor {
     //     self.last_exit_code
     // }
 
+    fn expand(&self, input: &str) -> String {
+        input
+            .split_whitespace()
+            .map(|word| {
+                if word.starts_with("$") {
+                    let key = word.strip_prefix('$').unwrap_or("");
+
+                    if self.declare_vars.contains_key(key) {
+                        self.declare_vars.get(key).unwrap().to_string()
+                    } else {
+                        word.to_string()
+                    }
+                } else {
+                    word.to_string()
+                }
+            })
+            .collect::<Vec<String>>()
+            .join(" ")
+    }
+
     pub(crate) fn load_history(&mut self, history: &mut FileHistory) {
         match &self.history_helper.read_history_file() {
             Ok(hist) => {
@@ -55,7 +75,7 @@ impl Processor {
 
     /// Parses and dispatches a full command line, routing to builtins or external executables.
     pub(crate) fn process_command(&mut self, input: &str, history: &mut DefaultHistory) {
-        let input = input.trim();
+        let input = self.expand(input.trim());
         if input.is_empty() {
             return;
         }
@@ -78,10 +98,10 @@ impl Processor {
                         }
                     }
                     _ => {
-                        if args.len() == 1 {
-                            if let Some(msg) = self.handle_declare_set(args[0]) {
-                                eprintln!("{}", msg);
-                            }
+                        if args.len() == 1
+                            && let Some(msg) = self.handle_declare_set(args[0])
+                        {
+                            eprintln!("{}", msg);
                         }
                     }
                 }
@@ -151,7 +171,7 @@ impl Processor {
             _ => {}
         }
 
-        let segments = build_pipeline(input, &self.paths, self.bi.completions());
+        let segments = build_pipeline(&input, &self.paths, self.bi.completions());
         match execute_pipeline(segments) {
             PipelineResult::Foreground(code) => {
                 self.jobs.check_done_jobs();
@@ -161,7 +181,7 @@ impl Processor {
                 let cmd = input
                     .trim_end()
                     .strip_suffix('&')
-                    .unwrap_or(input)
+                    .unwrap_or(&input)
                     .trim_end()
                     .to_string();
                 self.jobs.track(child, cmd);
@@ -184,12 +204,12 @@ impl Processor {
         if let Some((key, val)) = arg.split_once("=") {
             for (i, ch) in key.chars().enumerate() {
                 match ch {
-                    '0'..'9' => {
+                    '0'..='9' => {
                         if i == 0 {
                             return self.handle_declare_err_format(arg);
                         }
                     }
-                    'a'..'z' | 'A'..'Z' | '_' => continue,
+                    'a'..='z' | 'A'..='Z' | '_' => continue,
                     _ => return self.handle_declare_err_format(arg),
                 }
             }
