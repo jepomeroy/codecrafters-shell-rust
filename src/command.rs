@@ -68,7 +68,7 @@ enum ParserState {
     /// Double-quoted region (`"..."`): backslash still escapes inside.
     DoubleQuote,
     /// After a `\` outside a single-quote: the next character is taken literally.
-    Escaped,
+    Escaped(Box<ParserState>),
 }
 
 /// One stage of a pipeline: a command together with its I/O redirects and background flag.
@@ -233,9 +233,6 @@ impl ExternalCommand {
         let mut args = VecDeque::new();
         let mut current = String::new();
         let mut state = ParserState::Normal;
-        // Remembers whether Escaped was entered from Normal or DoubleQuote,
-        // so we can return to the right state afterward.
-        let mut prev_state = ParserState::Normal;
 
         let mut iter = args_str.chars().peekable();
 
@@ -246,10 +243,9 @@ impl ExternalCommand {
                     ParserState::SingleQuote => state = ParserState::Normal,
                     ParserState::DoubleQuote => current.push('\''), // literal inside "..."
                     ParserState::BSQOpen => current.push('\''),     // literal inside \'...\'
-                    ParserState::Escaped => {
+                    ParserState::Escaped(prev) => {
                         // \' — literal single quote, return to prior context
-                        state = prev_state;
-                        prev_state = ParserState::Normal;
+                        state = *prev;
                         current.push('\'');
                     }
                 },
@@ -258,10 +254,9 @@ impl ExternalCommand {
                     ParserState::SingleQuote => current.push('\"'), // literal inside '...'
                     ParserState::DoubleQuote => state = ParserState::Normal,
                     ParserState::BSQOpen => current.push('\"'), // literal inside \'...\'
-                    ParserState::Escaped => {
+                    ParserState::Escaped(prev) => {
                         // \" — literal double quote, return to prior context
-                        state = prev_state;
-                        prev_state = ParserState::Normal;
+                        state = *prev;
                         current.push('\"');
                     }
                 },
@@ -272,20 +267,18 @@ impl ExternalCommand {
                             args.push_back(current.split_off(0));
                         }
                     }
-                    ParserState::Escaped => {
+                    ParserState::Escaped(prev) => {
                         // \ followed by space: literal space
-                        state = prev_state;
-                        prev_state = ParserState::Normal;
+                        state = *prev;
                         current.push(' ');
                     }
                     // Inside any quote context: space is literal
                     _ => current.push(' '),
                 },
                 '\\' => match state {
-                    ParserState::Escaped => {
+                    ParserState::Escaped(prev) => {
                         // \\ — literal backslash
-                        state = prev_state;
-                        prev_state = ParserState::Normal;
+                        state = *prev;
                         current.push('\\');
                     }
                     // Backslash is literal inside single quotes
@@ -312,15 +305,13 @@ impl ExternalCommand {
                     }
                     _ => {
                         // Normal or DoubleQuote: start an escape sequence
-                        prev_state = state;
-                        state = ParserState::Escaped;
+                        state = ParserState::Escaped(Box::new(state));
                     }
                 },
                 other => match state {
-                    ParserState::Escaped => {
+                    ParserState::Escaped(prev) => {
                         // Any other escaped char is taken literally (backslash consumed)
-                        state = prev_state;
-                        prev_state = ParserState::Normal;
+                        state = *prev;
                         current.push(other);
                     }
                     _ => current.push(other),
