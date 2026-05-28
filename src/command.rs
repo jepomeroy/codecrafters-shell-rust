@@ -57,12 +57,10 @@ pub(crate) trait PipelineCommand: Send + 'static {
     }
 }
 
+#[derive(Clone)]
 enum ParserState {
     /// Unquoted text; spaces split args and backslash escapes the next char.
     Normal,
-    /// Backslash-single-quote region (`\'...\' `): content is literal, spaces don't split,
-    /// `\'` closes (emitting `'`), `\"` emits `"`.
-    BSQOpen,
     /// Single-quoted region (`'...'`): everything literal until the closing `'`.
     SingleQuote,
     /// Double-quoted region (`"..."`): backslash still escapes inside.
@@ -234,88 +232,39 @@ impl ExternalCommand {
         let mut current = String::new();
         let mut state = ParserState::Normal;
 
-        let mut iter = args_str.chars().peekable();
+        let iter = args_str.chars().peekable();
 
-        while let Some(c) = iter.next() {
-            match c {
-                '\'' => match state {
-                    ParserState::Normal => state = ParserState::SingleQuote,
-                    ParserState::SingleQuote => state = ParserState::Normal,
-                    ParserState::DoubleQuote => current.push('\''), // literal inside "..."
-                    ParserState::BSQOpen => current.push('\''),     // literal inside \'...\'
-                    ParserState::Escaped(prev) => {
-                        // \' — literal single quote, return to prior context
-                        state = *prev;
-                        current.push('\'');
+        for c in iter {
+            match (&state, c) {
+                // Normal state
+                (ParserState::Normal, '\'') => state = ParserState::SingleQuote,
+                (ParserState::Normal, '\"') => state = ParserState::DoubleQuote,
+                (ParserState::Normal, ' ') => {
+                    // Unquoted space: flush current token
+                    if !current.is_empty() {
+                        args.push_back(current.split_off(0));
                     }
-                },
-                '\"' => match state {
-                    ParserState::Normal => state = ParserState::DoubleQuote,
-                    ParserState::SingleQuote => current.push('\"'), // literal inside '...'
-                    ParserState::DoubleQuote => state = ParserState::Normal,
-                    ParserState::BSQOpen => current.push('\"'), // literal inside \'...\'
-                    ParserState::Escaped(prev) => {
-                        // \" — literal double quote, return to prior context
-                        state = *prev;
-                        current.push('\"');
-                    }
-                },
-                ' ' => match state {
-                    ParserState::Normal => {
-                        // Unquoted space: flush current token
-                        if !current.is_empty() {
-                            args.push_back(current.split_off(0));
-                        }
-                    }
-                    ParserState::Escaped(prev) => {
-                        // \ followed by space: literal space
-                        state = *prev;
-                        current.push(' ');
-                    }
-                    // Inside any quote context: space is literal
-                    _ => current.push(' '),
-                },
-                '\\' => match state {
-                    ParserState::Escaped(prev) => {
-                        // \\ — literal backslash
-                        state = *prev;
-                        current.push('\\');
-                    }
-                    // Backslash is literal inside single quotes
-                    ParserState::SingleQuote => current.push('\\'),
-                    ParserState::BSQOpen => {
-                        // Peek to decide: \' closes the region, \" escapes the quote,
-                        // anything else the backslash is literal.
-                        if iter.peek() == Some(&'\'') {
-                            iter.next();
-                            current.push('\'');
-                            state = ParserState::Normal;
-                        } else if iter.peek() == Some(&'"') {
-                            iter.next();
-                            current.push('"');
-                        } else {
-                            current.push('\\');
-                        }
-                    }
-                    // \' in Normal: open a BSQ region and emit the leading '
-                    ParserState::Normal if iter.peek() == Some(&'\'') => {
-                        iter.next();
-                        current.push('\'');
-                        state = ParserState::BSQOpen;
-                    }
-                    _ => {
-                        // Normal or DoubleQuote: start an escape sequence
-                        state = ParserState::Escaped(Box::new(state));
-                    }
-                },
-                other => match state {
-                    ParserState::Escaped(prev) => {
-                        // Any other escaped char is taken literally (backslash consumed)
-                        state = *prev;
-                        current.push(other);
-                    }
-                    _ => current.push(other),
-                },
+                }
+                (ParserState::Normal, '\\') => {
+                    state = ParserState::Escaped(Box::new(ParserState::Normal))
+                }
+                // Single Quote state
+                (ParserState::SingleQuote, '\'') => state = ParserState::Normal,
+                (ParserState::SingleQuote, '"') => current.push('\"'), // literal inside '...'
+                // Double Quote state
+                (ParserState::DoubleQuote, '\'') => current.push('\''), // literal inside "..."
+                (ParserState::DoubleQuote, '"') => state = ParserState::Normal,
+                (ParserState::DoubleQuote, '\\') => {
+                    // backslash still escapes inside double quotes
+                    state = ParserState::Escaped(Box::new(ParserState::DoubleQuote))
+                }
+                // Escape state
+                (ParserState::Escaped(prev), _) => {
+                    // Any char after backslash is literal (backslash consumed)
+                    state = *prev.clone();
+                    current.push(c);
+                }
+                _ => current.push(c),
             }
         }
 
@@ -611,7 +560,7 @@ mod tests {
     #[test]
     fn test_parse_args_backslash_single_quote() {
         let args = ExternalCommand::parse_input(r"\'arg1 arg2\'");
-        assert_eq!(args, vec!["'arg1 arg2'"]);
+        assert_eq!(args, vec!["'arg1", "arg2'"]);
     }
 
     // Support single quote sting literals
@@ -636,6 +585,6 @@ mod tests {
     #[test]
     fn test_parse_args_escaped_single_and_double_quotes() {
         let args = ExternalCommand::parse_input(r#"\'\"arg1 arg2\"\'"#);
-        assert_eq!(args, vec![r#"'"arg1 arg2"'"#]);
+        assert_eq!(args, vec![r#"'"arg1"#, r#"arg2"'"#]);
     }
 }
